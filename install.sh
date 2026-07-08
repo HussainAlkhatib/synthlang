@@ -32,6 +32,7 @@ install_binary() {
     mkdir -p "$INSTALL_PREFIX/lib/slang/bin"
     mkdir -p "$INSTALL_PREFIX/lib/slang/lib/core"
     mkdir -p "$INSTALL_PREFIX/lib/slang/lib/stdlib"
+    mkdir -p "$INSTALL_PREFIX/lib/slang/lib/go"
     mkdir -p "$CACHE_DIR/python"
     mkdir -p "$CACHE_DIR/node"
     
@@ -39,6 +40,13 @@ install_binary() {
     chmod +x "$INSTALL_PREFIX/lib/slang/bin/slang"
     
     ln -sf "$INSTALL_PREFIX/lib/slang/bin/slang" "$INSTALL_PREFIX/bin/slang"
+    
+    # Copy Go FFI library if built
+    if [ -f "src/synthlang/libgoffi.so" ]; then
+        cp "src/synthlang/libgoffi.so" "$INSTALL_PREFIX/lib/slang/lib/go/"
+    elif [ -f "src/synthlang/libgoffi.dylib" ]; then
+        cp "src/synthlang/libgoffi.dylib" "$INSTALL_PREFIX/lib/slang/lib/go/"
+    fi
     
     echo "$VERSION" > "$INSTALL_PREFIX/lib/slang/version.txt"
     

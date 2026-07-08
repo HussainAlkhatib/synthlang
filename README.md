@@ -124,7 +124,7 @@ pip install synthlang
 ## CLI Commands
 
 ```bash
-slang file.sl             # Run a file
+slang file.sl             # Run a file (uses Rust Core + Go FFI by default)
 slang run file.sl         # Same as above
 slang init myproject      # Initialize new project
 slang build --release     # Build executable
@@ -133,6 +133,15 @@ slang fmt                 # Format code
 slang repl                # Interactive REPL
 slang pip install pkg     # Install PyPI package
 slang npm install pkg     # Install npm package
+```
+
+### Backend Flags
+
+```bash
+slang script.sl --rust --go      # Rust Core + Go FFI (default if available)
+slang script.sl --python --pyffi  # Python Core + Python FFI (original behavior)
+slang script.sl --rust --pyffi    # Rust Core + Python FFI
+slang --debug script.sl           # Debug mode - show IR and stack traces
 ```
 
 ## Documentation

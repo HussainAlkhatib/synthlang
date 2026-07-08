@@ -24,6 +24,103 @@ except ImportError:
     RUST_AVAILABLE = False
     synthlang_core = None
 
+# Try to import Go FFI for enhanced performance
+try:
+    import ctypes
+    import platform
+    
+    if platform.system() == "Windows":
+        go_lib_path = str(Path(__file__).parent / "libgoffi.dll")
+    elif platform.system() == "Darwin":
+        go_lib_path = str(Path(__file__).parent / "libgoffi.dylib")
+    else:
+        go_lib_path = str(Path(__file__).parent / "libgoffi.so")
+    
+    go_ffi = ctypes.CDLL(go_lib_path)
+    
+    # FFI Module loading functions
+    go_ffi.LoadPythonModule.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
+    go_ffi.LoadPythonModule.restype = ctypes.c_ulonglong
+    go_ffi.LoadRustModule.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
+    go_ffi.LoadRustModule.restype = ctypes.c_ulonglong
+    go_ffi.LoadCModule.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
+    go_ffi.LoadCModule.restype = ctypes.c_ulonglong
+    go_ffi.LoadGoModule.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
+    go_ffi.LoadGoModule.restype = ctypes.c_ulonglong
+    go_ffi.LoadJavaScriptModule.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
+    go_ffi.LoadJavaScriptModule.restype = ctypes.c_ulonglong
+    
+    # FFI Call functions
+    go_ffi.CallFunction.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p]
+    go_ffi.CallFunction.restype = ctypes.c_char_p
+    
+    # Scheduler functions
+    go_ffi.SpawnTask.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
+    go_ffi.SpawnTask.restype = ctypes.c_ulonglong
+    go_ffi.AwaitTask.argtypes = [ctypes.c_ulonglong]
+    go_ffi.AwaitTask.restype = ctypes.c_char_p
+    go_ffi.YieldTask.argtypes = []
+    go_ffi.YieldTask.restype = None
+    go_ffi.GetLastError.argtypes = []
+    go_ffi.GetLastError.restype = ctypes.c_char_p
+    go_ffi.ClearError.argtypes = []
+    go_ffi.ClearError.restype = None
+    
+    GO_AVAILABLE = True
+except Exception:
+    GO_AVAILABLE = False
+    go_ffi = None
+
+
+def go_load_module(language: str, path: str) -> int:
+    """Load a module using Go FFI backend."""
+    if not GO_AVAILABLE or go_ffi is None:
+        raise RuntimeError("Go FFI not available")
+    
+    loaders = {
+        "python": go_ffi.LoadPythonModule,
+        "rust": go_ffi.LoadRustModule,
+        "c": go_ffi.LoadCModule,
+        "go": go_ffi.LoadGoModule,
+        "javascript": go_ffi.LoadJavaScriptModule,
+    }
+    
+    loader = loaders.get(language.lower())
+    if not loader:
+        raise ValueError(f"Unsupported language: {language}")
+    
+    return loader(language.encode('utf-8'), path.encode('utf-8'))
+
+
+def go_call_function(module: str, func: str, args: str) -> str:
+    """Call a function using Go FFI backend."""
+    if not GO_AVAILABLE or go_ffi is None:
+        raise RuntimeError("Go FFI not available")
+    
+    result = go_ffi.CallFunction(
+        module.encode('utf-8'),
+        func.encode('utf-8'),
+        args.encode('utf-8')
+    )
+    return result.decode('utf-8') if result else ""
+
+
+def go_spawn_task(func: str, args: str) -> int:
+    """Spawn a goroutine task using Go FFI backend."""
+    if not GO_AVAILABLE or go_ffi is None:
+        raise RuntimeError("Go FFI not available")
+    
+    return go_ffi.SpawnTask(func.encode('utf-8'), args.encode('utf-8'))
+
+
+def go_await_task(task_id: int) -> str:
+    """Await a goroutine task using Go FFI backend."""
+    if not GO_AVAILABLE or go_ffi is None:
+        raise RuntimeError("Go FFI not available")
+    
+    result = go_ffi.AwaitTask(task_id)
+    return result.decode('utf-8') if result else ""
+
 from .lexer import Lexer
 from .ir import IRModule
 from .parser import Parser
@@ -72,41 +169,74 @@ def _process_ffi_imports(vm: VM, ir: IRModule):
         vm._handle_ffi_import(language, module_path, as_name)
 
 
-def run_file(filepath: str, verbose: bool = False, use_cache: bool = True, debug: bool = False, use_python: bool = False) -> dict:
-    if use_cache:
-        cache = load_cached_ir(filepath)
-        if cache:
-            if verbose:
-                print(f"Using cached IR from {cache}")
+def run_file(filepath: str, verbose: bool = False, use_cache: bool = True, debug: bool = False,
+             backend: str = "rust", ffi_backend: str = "go") -> dict:
+    """
+    Execute a SynthLang file with the specified backends.
     
+    Args:
+        filepath: Path to the .sl file to execute
+        verbose: Enable verbose output
+        use_cache: Use cached IR if available
+        debug: Enable debug mode
+        backend: Core backend to use ("rust" or "python")
+        ffi_backend: FFI backend to use ("go" or "pyffi")
+    
+    Returns:
+        Dictionary of final variable states
+    """
     with open(filepath, 'r') as f:
         source = f.read()
     
-    if use_python or not RUST_AVAILABLE:
+    use_rust = backend == "rust" and RUST_AVAILABLE
+    
+    if use_rust:
         if verbose:
-            print(f"Compiling {filepath}...")
+            print(f"Using Rust Core backend for {filepath}")
         
-        lexer = Lexer(source)
-        tokens = lexer.tokenize()
-        parser = Parser(tokens, source)
-        ast = parser.parse()
-        compiler = Compiler()
-        ir = compiler.compile(ast)
-        
-        if use_cache:
-            save_cached_ir(filepath, ir)
-        
+        try:
+            if debug:
+                lex_fn = synthlang_core.lex if hasattr(synthlang_core, 'lex') else synthlang_core.tokenize
+                tokens = lex_fn(source)
+                if verbose:
+                    print(f"Tokens: {tokens}")
+            
+            result = synthlang_core.execute(source, debug)
+            
+            if ffi_backend == "go" and GO_AVAILABLE and verbose:
+                print("Using Go FFI backend for FFI operations...")
+            
+            return dict(result)
+        except Exception as e:
+            print(f"Warning: Rust Core execution failed, falling back to Python: {e}", file=sys.stderr)
+            return _run_file_python(source, filepath, verbose, use_cache, debug, ffi_backend)
+    
+    if verbose and RUST_AVAILABLE:
+        print("Warning: synthlang_core available but Python backend forced", file=sys.stderr)
+    
+    return _run_file_python(source, filepath, verbose, use_cache, debug, ffi_backend)
+
+
+def _run_file_python(source: str, filepath: str, verbose: bool, use_cache: bool, debug: bool, ffi_backend: str) -> dict:
+    """Run file using Python backend."""
+    lexer = Lexer(source)
+    tokens = lexer.tokenize()
+    parser = Parser(tokens, source)
+    ast = parser.parse()
+    compiler = Compiler()
+    ir = compiler.compile(ast)
+    
+    if use_cache:
+        save_cached_ir(filepath, ir)
+    
+    vm = VM(ir, debug=debug)
+    _process_ffi_imports(vm, ir)
+    
+    if ffi_backend == "go" and GO_AVAILABLE:
         if verbose:
-            print(f"Executing...")
-        
-        vm = VM(ir, debug=debug)
-        _process_ffi_imports(vm, ir)
-        return vm.run()
-    else:
-        if verbose:
-            print(f"Executing with Rust backend...")
-        result = synthlang_core.execute(source, debug)
-        return dict(result)
+            print("Using Go FFI backend for FFI operations...")
+    
+    return vm.run()
 
 
 def read_current_version() -> str:
@@ -254,10 +384,19 @@ def cmd_run(args):
         sys.exit(1)
     
     debug = getattr(args, 'debug', False)
-    use_python = getattr(args, 'python', False)
+    backend = "python" if getattr(args, 'python', False) else "rust"
+    ffi_backend = "pyffi" if getattr(args, 'pyffi', False) else "go"
+    
+    if backend == "rust" and not RUST_AVAILABLE:
+        print("Warning: Rust backend requested but synthlang_core not available, falling back to Python", file=sys.stderr)
+        backend = "python"
+    
+    if ffi_backend == "go" and not GO_AVAILABLE:
+        print("Warning: Go FFI requested but libgoffi not available, falling back to Python FFI", file=sys.stderr)
+        ffi_backend = "pyffi"
     
     try:
-        result = run_file(args.file, args.verbose, debug=debug, use_python=use_python)
+        result = run_file(args.file, args.verbose, debug=debug, backend=backend, ffi_backend=ffi_backend)
         if result:
             for k, v in result.items():
                 print(f"{k} = {v}")
@@ -328,7 +467,7 @@ def cmd_eval(args):
             return
         except Exception as e:
             print(f"Error: {e}")
-            return
+            use_python = True
     result = evaluate(code)
     if result:
         print(result)
@@ -470,6 +609,9 @@ def main():
     parser.add_argument('--verbose', action='store_true', help='Verbose output')
     parser.add_argument('--debug', action='store_true', help='Debug mode - show IR and stack traces')
     parser.add_argument('--python', action='store_true', help='Force using Python backend instead of Rust')
+    parser.add_argument('--rust', action='store_true', help='Force using Rust backend (default if available)')
+    parser.add_argument('--go', action='store_true', help='Force using Go FFI backend (default if available)')
+    parser.add_argument('--pyffi', action='store_true', help='Force using Python FFI backend')
     
     args, remaining = parser.parse_known_args()
     
@@ -481,21 +623,35 @@ def main():
         parser.print_help()
         return
     
-    use_python = args.python or not RUST_AVAILABLE
-    if not RUST_AVAILABLE:
-        print("Warning: synthlang_core not available, using Python backend", file=sys.stderr)
+    # Determine backend selection
+    backend = "python" if args.python else "rust"
+    ffi_backend = "pyffi" if args.pyffi else "go"
+    
+    if backend == "rust" and RUST_AVAILABLE:
+        if args.verbose:
+            print("Using Rust Core backend")
+    elif backend == "rust" and not RUST_AVAILABLE:
+        print("Warning: Rust backend requested but synthlang_core not available, falling back to Python", file=sys.stderr)
+        backend = "python"
+    
+    if ffi_backend == "go" and GO_AVAILABLE:
+        if args.verbose:
+            print("Using Go FFI backend for concurrency and FFI operations")
+    elif ffi_backend == "go" and not GO_AVAILABLE:
+        print("Warning: Go FFI requested but libgoffi not available, falling back to Python FFI", file=sys.stderr)
+        ffi_backend = "pyffi"
     
     first_arg = remaining[0]
     
     if first_arg in ('init', 'run', 'build', 'test', 'fmt', 'eval', 'repl',
                    'pip', 'npm', 'install', 'list', 'make', 'doc',
                    'doctor', 'watch', 'optimize', 'profile', 'version'):
-        args = _build_subparser(first_arg, use_python).parse_args(remaining[1:])
+        args = _build_subparser(first_arg, backend == "python").parse_args(remaining[1:])
         _dispatch(first_arg, args)
     elif first_arg.endswith('.sl') or not first_arg.startswith('-'):
         if Path(first_arg).exists():
             try:
-                result = run_file(first_arg, args.verbose, debug=args.debug, use_python=use_python)
+                result = run_file(first_arg, args.verbose, debug=args.debug, backend=backend, ffi_backend=ffi_backend)
                 if result:
                     for k, v in result.items():
                         print(f"{k} = {v}")
@@ -522,6 +678,9 @@ def _build_subparser(cmd: str, use_python: bool = False):
         parser.add_argument('--verbose', action='store_true')
         parser.add_argument('--debug', action='store_true', help='Debug mode')
         parser.add_argument('--python', action='store_true', help='Force using Python backend')
+        parser.add_argument('--pyffi', action='store_true', help='Force using Python FFI backend')
+        parser.add_argument('--go', action='store_true', help='Force using Go FFI backend')
+        parser.add_argument('--rust', action='store_true', help='Force using Rust backend')
     elif cmd == 'build':
         parser.add_argument('--release', action='store_true')
         parser.add_argument('--output', '-o', default='slang')

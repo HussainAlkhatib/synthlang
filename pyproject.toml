@@ -22,9 +22,18 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 
+[project.optional-dependencies]
+# Rust core extension module (requires Rust toolchain)
+synthlang-core = []
+
+# Go FFI for concurrency (requires Go toolchain)
+libgoffi = []
+
 [project.scripts]
 slang = "synthlang.cli:main"
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
 python-source = "src"
+strip = true
+release = true

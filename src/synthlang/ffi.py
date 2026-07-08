@@ -340,6 +340,32 @@ console.log(JSON.stringify(result));'''
 
 ffi_loader = FFILoader()
 
+# Try to load Go FFI library
+try:
+    import platform
+    _go_lib_path = str(Path(__file__).parent / ("libgoffi.dll" if platform.system() == "Windows" else "libgoffi.so" if platform.system() != "Darwin" else "libgoffi.dylib"))
+    _go_ffi = ctypes.CDLL(_go_lib_path)
+    _go_ffi.LoadPythonModule.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
+    _go_ffi.LoadPythonModule.restype = ctypes.c_ulonglong
+    _go_ffi.LoadRustModule.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
+    _go_ffi.LoadRustModule.restype = ctypes.c_ulonglong
+    _go_ffi.LoadCModule.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
+    _go_ffi.LoadCModule.restype = ctypes.c_ulonglong
+    _go_ffi.LoadGoModule.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
+    _go_ffi.LoadGoModule.restype = ctypes.c_ulonglong
+    _go_ffi.LoadJavaScriptModule.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
+    _go_ffi.LoadJavaScriptModule.restype = ctypes.c_ulonglong
+    _go_ffi.CallFunction.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p]
+    _go_ffi.CallFunction.restype = ctypes.c_char_p
+    _go_ffi.SpawnTask.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
+    _go_ffi.SpawnTask.restype = ctypes.c_ulonglong
+    _go_ffi.AwaitTask.argtypes = [ctypes.c_ulonglong]
+    _go_ffi.AwaitTask.restype = ctypes.c_char_p
+    GO_FFI_AVAILABLE = True
+except Exception:
+    GO_FFI_AVAILABLE = False
+    _go_ffi = None
+
 
 class SynthLangFunction:
     """Represents a SynthLang function that can be passed as a callback to Python."""
@@ -376,3 +402,46 @@ def c_module(path, as_name=None):
 
 def java_module(path, as_name=None):
     pass
+
+# Go FFI wrapper functions
+def go_load_python_module(name: str, path: str) -> int:
+    if GO_FFI_AVAILABLE and _go_ffi:
+        return _go_ffi.LoadPythonModule(name.encode('utf-8'), path.encode('utf-8'))
+    raise FFIError("Go FFI not available", language='go')
+
+def go_load_rust_module(name: str, path: str) -> int:
+    if GO_FFI_AVAILABLE and _go_ffi:
+        return _go_ffi.LoadRustModule(name.encode('utf-8'), path.encode('utf-8'))
+    raise FFIError("Go FFI not available", language='go')
+
+def go_load_c_module(name: str, path: str) -> int:
+    if GO_FFI_AVAILABLE and _go_ffi:
+        return _go_ffi.LoadCModule(name.encode('utf-8'), path.encode('utf-8'))
+    raise FFIError("Go FFI not available", language='go')
+
+def go_load_go_module(name: str, path: str) -> int:
+    if GO_FFI_AVAILABLE and _go_ffi:
+        return _go_ffi.LoadGoModule(name.encode('utf-8'), path.encode('utf-8'))
+    raise FFIError("Go FFI not available", language='go')
+
+def go_load_javascript_module(name: str, path: str) -> int:
+    if GO_FFI_AVAILABLE and _go_ffi:
+        return _go_ffi.LoadJavaScriptModule(name.encode('utf-8'), path.encode('utf-8'))
+    raise FFIError("Go FFI not available", language='go')
+
+def go_call_function(module: str, function: str, args: str) -> str:
+    if GO_FFI_AVAILABLE and _go_ffi:
+        result = _go_ffi.CallFunction(module.encode('utf-8'), function.encode('utf-8'), args.encode('utf-8'))
+        return result.decode('utf-8') if result else ""
+    raise FFIError("Go FFI not available", language='go')
+
+def go_spawn_task(func: str, args: str) -> int:
+    if GO_FFI_AVAILABLE and _go_ffi:
+        return _go_ffi.SpawnTask(func.encode('utf-8'), args.encode('utf-8'))
+    raise FFIError("Go FFI not available", language='go')
+
+def go_await_task(task_id: int) -> str:
+    if GO_FFI_AVAILABLE and _go_ffi:
+        result = _go_ffi.AwaitTask(task_id)
+        return result.decode('utf-8') if result else ""
+    raise FFIError("Go FFI not available", language='go')

@@ -4,4 +4,4 @@ let result = 0
 if x > 5:
     result = 1
 
-print(result)
+print(result) 
