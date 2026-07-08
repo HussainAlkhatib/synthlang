@@ -30,6 +30,9 @@ pub enum IRType {
     UNARY_OP,
     NOP,
     LABEL,
+    DEFER,
+    MATCH,
+    TRY,
 }
 
 impl Default for IRType {
@@ -121,3 +124,6 @@ pub fn ffi_call(language: &str, module: &str, func: &str, _arg_count: i64) -> IR
     IRInstruction { ty: IRType::FFI_CALL, operand: Some(language.to_string()), arg1: Some(module.to_string()), arg2: Some(func.to_string()), arg3: None }
 }
 pub fn label(name: &str) -> IRInstruction { IRInstruction::with_operand(IRType::LABEL, name) }
+pub fn defer_op(expr: &str) -> IRInstruction { IRInstruction::with_operand(IRType::DEFER, expr) }
+pub fn match_op() -> IRInstruction { IRInstruction::new(IRType::MATCH) }
+pub fn try_op() -> IRInstruction { IRInstruction::new(IRType::TRY) }

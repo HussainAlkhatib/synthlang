@@ -8,7 +8,7 @@ from .ir import (
     jump, jump_if_false, jump_if_true, loop_begin, loop_end,
     alloc, free, increment_rc, decrement_rc,
     spawn_thread, wait, yield_op, await_op, binary_op, unary_op,
-    ffi_import, ffi_call, ffi_get_attr, label
+    ffi_import, ffi_call, ffi_get_attr, label, defer_op, match_op, try_op
 )
 
 
@@ -59,6 +59,8 @@ class Compiler:
             return self._compile_return(node)
         elif node.type == NodeType.IF:
             self._compile_if(node)
+        elif node.type == NodeType.MATCH:
+            self._compile_match(node)
         elif node.type == NodeType.FOR:
             self._compile_for(node)
         elif node.type == NodeType.WHILE:
@@ -71,6 +73,10 @@ class Compiler:
             instrs = self._compile_expression(node)
             for instr in instrs:
                 self._add_instruction(instr)
+        elif node.type == NodeType.DEFER:
+            self._compile_defer(node)
+        elif node.type == NodeType.TRY:
+            self._compile_try(node)
         elif node.type == NodeType.IMPORT:
             self._compile_import(node)
         elif node.type == NodeType.FFI_IMPORT_SELECTIVE:
@@ -341,6 +347,78 @@ class Compiler:
         for func_name in imports:
             full_name = f"{module_path}.{func_name}"
             self._add_instruction(ffi_import(language, full_name, func_name))
+
+    def _compile_match(self, node: ASTNode):
+        """Compile a match statement into IR."""
+        if node.children:
+            value_expr = node.children[0]
+            for instr in self._compile_expression(value_expr):
+                self._add_instruction(instr)
+        
+        # Collect all patterns and bodies from remaining children
+        remaining = node.children[1:] if len(node.children) > 1 else []
+        
+        patterns = []
+        bodies = []
+        for child in remaining:
+            if child.type == NodeType.BLOCK:
+                bodies.append(child)
+            elif child.type == NodeType.EXPRESSION:
+                patterns.append(child)
+        
+        # Generate match logic with labels
+        final_label = self._new_label('match_end')
+        
+        for pattern, body in zip(patterns[:len(bodies)], bodies):
+            if pattern.type == NodeType.EXPRESSION:
+                # Compile pattern comparison
+                for instr in self._compile_expression(pattern):
+                    self._add_instruction(instr)
+                # Stack has: value, pattern_value - compare
+                self._add_instruction(binary_op('=='))
+                case_end = self._new_label('case_end')
+                self._add_instruction(jump_if_false(case_end))
+                for child in body.children:
+                    self._compile_node(child)
+                self._add_instruction(jump(final_label))
+                self._add_instruction(label(case_end))
+        
+        self._add_instruction(label(final_label))
+
+    def _compile_defer(self, node: ASTNode):
+        """Compile a defer statement."""
+        if node.children:
+            child = node.children[0]
+            if child.type == NodeType.CALL:
+                func_name = child.value
+                for arg in child.children:
+                    for instr in self._compile_expression(arg):
+                        self._add_instruction(instr)
+                self._add_instruction(defer_op(func_name))
+            else:
+                for instr in self._compile_expression(child):
+                    self._add_instruction(instr)
+                self._add_instruction(defer_op(str(child.value)))
+
+    def _compile_try(self, node: ASTNode):
+        """Compile a try/handle statement."""
+        error_var = node.value.get('error_var', '_error') if node.value else '_error'
+        
+        if len(node.children) > 0:
+            try_expr = node.children[0]
+            for instr in self._compile_expression(try_expr):
+                self._add_instruction(instr)
+        
+        if len(node.children) > 1:
+            try_body = node.children[1]
+            for child in try_body.children:
+                self._compile_node(child)
+        
+        if len(node.children) > 2:
+            handle_body = node.children[2]
+            self._add_instruction(load_var(error_var))
+            for child in handle_body.children:
+                self._compile_node(child)
 
 
 if __name__ == '__main__':

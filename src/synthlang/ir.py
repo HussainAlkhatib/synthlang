@@ -33,6 +33,9 @@ class IRType(Enum):
     UNARY_OP = auto()
     NOP = auto()
     LABEL = auto()
+    DEFER = auto()
+    MATCH = auto()
+    TRY = auto()
 
 
 @dataclass
@@ -180,3 +183,12 @@ def ffi_call(language: str, module: str, func: str, args: list) -> IRInstruction
 
 def label(name: str) -> IRInstruction:
     return IRInstruction(IRType.LABEL, operand=name)
+
+def defer_op(expr: str) -> IRInstruction:
+    return IRInstruction(IRType.DEFER, operand=expr)
+
+def match_op(cases: list) -> IRInstruction:
+    return IRInstruction(IRType.MATCH, operand=str(cases))
+
+def try_op() -> IRInstruction:
+    return IRInstruction(IRType.TRY)

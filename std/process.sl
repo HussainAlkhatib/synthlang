@@ -1,12 +1,16 @@
-@python module "subprocess" as subprocess
+# Process management module (Go backed)
+@go module "./src/go/std/process" as proc_native
 
 fn spawn(command: list):
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    return process.pid
+    proc_native.process_spawn(command[0], command[1:])
 
 fn run(command: str):
-    result = subprocess.run(command, shell=true, capture_output=true, text=true)
-    return {"stdout": result.stdout, "stderr": result.stderr, "returncode": result.returncode}
+    proc_native.process_execute(command, [])
 
 fn get_input(prompt: str):
-    return input(prompt)
+    native_input(prompt)
+
+fn native_input(prompt):
+    # Use Python for stdin interaction
+    @python module "builtins" as _builtins
+    return _builtins.input(prompt)

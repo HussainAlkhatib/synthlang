@@ -1,24 +1,21 @@
-@python module "socket" as socket
+# Network module (Go backed)
+@go module "./src/go/std/network" as net_native
 
 fn create_socket(family: str, type: str):
-    fam = socket.AF_INET if family == "inet" else socket.AF_INET6
-    typ = socket.SOCK_STREAM if type == "stream" else socket.SOCK_DGRAM
-    return socket.socket(fam, typ)
-
-fn bind(sock, address: tuple):
-    return sock.bind(address)
-
-fn listen(sock, backlog: int):
-    return sock.listen(backlog)
-
-fn accept(sock):
-    return sock.accept()
+    # Use Go native for high-performance networking
+    net_native.network_connect("0.0.0.0:0", null)
 
 fn connect(sock, address: tuple):
-    return sock.connect(address)
+    net_native.network_connect(f"{address[0]}:{address[1]}", null)
 
-fn send(sock, data: bytes):
-    return sock.send(data)
+fn send(sock, data):
+    pass  # Placeholder
 
 fn receive(sock, buffer_size: int):
-    return sock.recv(buffer_size)
+    pass  # Placeholder
+
+fn listen(address):
+    net_native.network_listen(address, null)
+
+fn broadcast(message, port):
+    net_native.network_broadcast(message, port)

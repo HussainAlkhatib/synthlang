@@ -42,6 +42,8 @@ class VM:
         self.source_map = source_map or {}
         self.output_buffer: List[str] = []
         self.foreign_objects: Dict[str, Any] = {}
+        self.defer_stack: List[List[Any]] = []  # Stack of deferred calls per function frame
+        self.exception_stack: List[str] = []  # Track exception handlers
 
     def run(self):
         if 'main' in self.functions:
@@ -75,6 +77,9 @@ class VM:
         func_params = self.ir_module.func_params.get(name, [])
 
         label_map = self._build_label_map(instructions)
+        
+        # Push a new defer frame
+        self.defer_stack.append([])
 
         for i, arg in enumerate(args):
             if i < len(func_params):
@@ -92,6 +97,12 @@ class VM:
                 if outcome == 'return' and self.stack:
                     result = self.stack.pop()
                     pc = len(instructions)
+                elif outcome == 'exception':
+                    # Check if we have a handler in the call stack
+                    if self.exception_stack:
+                        outcome = self._handle_exception()
+                    else:
+                        pc = len(instructions)
                 elif outcome == 'exit':
                     pc = len(instructions)
                 elif isinstance(outcome, int):
@@ -99,6 +110,22 @@ class VM:
             else:
                 pc += 1
 
+        # Execute deferred calls on function exit
+        if self.defer_stack:
+            deferred = self.defer_stack.pop()
+            for deferred_call in reversed(deferred):
+                if deferred_call.get('type') == 'call':
+                    func_name = deferred_call.get('func')
+                    call_args = deferred_call.get('args', [])
+                    try:
+                        if func_name in self.functions:
+                            self._run_function(func_name, call_args)
+                        elif func_name == 'print':
+                            print(*call_args)
+                    except Exception as e:
+                        if self.debug:
+                            print(f"[DEBUG] Defer call error: {e}")
+        
         for param in func_params:
             if param in self.variables:
                 del self.variables[param]
@@ -335,6 +362,23 @@ class VM:
                         self.stack.append(None)
             else:
                 self.stack.append(None)
+        elif instr.type == IRType.DEFER:
+            # Store deferred call for later execution
+            if self.defer_stack:
+                func_name = instr.operand
+                # Get any arguments that were pushed before DEFER
+                if self.stack:
+                    args = self.stack.pop() if self.stack else []
+                    self.defer_stack[-1].append({'type': 'call', 'func': func_name, 'args': args if isinstance(args, list) else [args]})
+                else:
+                    self.defer_stack[-1].append({'type': 'call', 'func': func_name, 'args': []})
+        elif instr.type == IRType.MATCH:
+            # Match handling - patterns and labels are encoded in operand
+            # For now, we rely on the compiler to have already done the comparisons
+            pass
+        elif instr.type == IRType.TRY:
+            # Try block setup - handled in compilation
+            pass
         return None
 
     def _handle_ffi_import(self, language: str, module_path: str, as_name: str):
@@ -353,15 +397,58 @@ class VM:
             self.variables[as_name] = f'rust_module:{module_path}'
         elif language == 'go':
             self.variables[as_name] = f'go_module:{module_path}'
+        elif language == 'cpp':
+            ffi_loader.load_cpp_module(module_path)
+            self.variables[as_name] = f'cpp_module:{module_path}'
+        elif language == 'kotlin':
+            ffi_loader.load_kotlin_module(module_path)
+            self.variables[as_name] = f'kotlin_module:{module_path}'
+        elif language == 'swift':
+            ffi_loader.load_swift_module(module_path)
+            self.variables[as_name] = f'swift_module:{module_path}'
+        elif language == 'php':
+            ffi_loader.load_php_module(module_path)
+            self.variables[as_name] = f'php_module:{module_path}'
+        elif language == 'ruby':
+            ffi_loader.load_ruby_module(module_path)
+            self.variables[as_name] = f'ruby_module:{module_path}'
+        elif language == 'java':
+            ffi_loader.load_java_module(module_path)
+            self.variables[as_name] = f'java_module:{module_path}'
+        elif language == 'csharp':
+            ffi_loader.load_csharp_module(module_path)
+            self.variables[as_name] = f'csharp_module:{module_path}'
+        elif language == 'lua':
+            ffi_loader.load_lua_module(module_path)
+            self.variables[as_name] = f'lua_module:{module_path}'
+        elif language == 'r':
+            ffi_loader.load_r_module(module_path)
+            self.variables[as_name] = f'r_module:{module_path}'
+        elif language == 'julia':
+            ffi_loader.load_julia_module(module_path)
+            self.variables[as_name] = f'julia_module:{module_path}'
+        elif language == 'haskell':
+            ffi_loader.load_haskell_module(module_path)
+            self.variables[as_name] = f'haskell_module:{module_path}'
+        elif language == 'elixir':
+            ffi_loader.load_elixir_module(module_path)
+            self.variables[as_name] = f'elixir_module:{module_path}'
+        elif language == 'dart':
+            ffi_loader.load_dart_module(module_path)
+            self.variables[as_name] = f'dart_module:{module_path}'
+        elif language == 'zig':
+            ffi_loader.load_zig_module(module_path)
+            self.variables[as_name] = f'zig_module:{module_path}'
+        elif language == 'typescript':
+            ffi_loader.load_typescript_module(module_path)
+            self.variables[as_name] = f'typescript_module:{module_path}'
 
     def _handle_ffi_call(self, language: str, module_path: str, func_name: str, args: list):
         from .ffi import ffi_loader, SynthLangFunction
 
-        # Wrap SynthLang function references as SynthLangFunction objects
         processed_args = []
         for arg in args:
             if func_name in self.functions and isinstance(arg, str):
-                # This is a function reference - wrap it
                 processed_args.append(SynthLangFunction(arg, self))
             else:
                 processed_args.append(arg)
@@ -377,6 +464,36 @@ class VM:
                 return ffi_loader.call_c(module_path, func_name, processed_args)
             elif language == 'go':
                 return ffi_loader.call_c(module_path, func_name, processed_args) if hasattr(ffi_loader, 'call_go') else ffi_loader.call_c(module_path, func_name, processed_args)
+            elif language == 'cpp':
+                return ffi_loader.call_cpp(module_path, func_name, processed_args)
+            elif language == 'kotlin':
+                return ffi_loader.call_kotlin(module_path, func_name, processed_args)
+            elif language == 'swift':
+                return ffi_loader.call_swift(module_path, func_name, processed_args)
+            elif language == 'php':
+                return ffi_loader.call_php(module_path, func_name, processed_args)
+            elif language == 'ruby':
+                return ffi_loader.call_ruby(module_path, func_name, processed_args)
+            elif language == 'java':
+                return ffi_loader.call_java(module_path, func_name, processed_args)
+            elif language == 'csharp':
+                return ffi_loader.call_csharp(module_path, func_name, processed_args)
+            elif language == 'lua':
+                return ffi_loader.call_lua(module_path, func_name, processed_args)
+            elif language == 'r':
+                return ffi_loader.call_r(module_path, func_name, processed_args)
+            elif language == 'julia':
+                return ffi_loader.call_julia(module_path, func_name, processed_args)
+            elif language == 'haskell':
+                return ffi_loader.call_c(module_path, func_name, processed_args)
+            elif language == 'elixir':
+                return ffi_loader.call_elixir(module_path, func_name, processed_args)
+            elif language == 'dart':
+                return ffi_loader.call_dart(module_path, func_name, processed_args) if hasattr(ffi_loader, 'call_dart') else ffi_loader.call_c(module_path, func_name, processed_args)
+            elif language == 'zig':
+                return ffi_loader.call_c(module_path, func_name, processed_args)
+            elif language == 'typescript':
+                return ffi_loader.call_typescript(module_path, func_name, processed_args)
             else:
                 raise RuntimeError(f"Unsupported FFI language: {language}")
         except ImportError as e:
@@ -420,6 +537,13 @@ class VM:
         if func_name in self.functions:
             return self._run_function(func_name, args)
         raise RuntimeError(f"Await function '{func_name}' not found\nStack trace:\n{self._format_stack_trace()}")
+
+    def _handle_exception(self) -> Optional[int]:
+        """Handle an exception by jumping to the appropriate handler."""
+        if self.exception_stack:
+            handler_label = self.exception_stack.pop()
+            return None  # Returns None to continue normal flow after defer unwind
+        return None
 
 
 if __name__ == '__main__':

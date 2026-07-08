@@ -1,59 +1,30 @@
-@python module "builtins" as _builtins
-@python module "os" as _os
-@python module "json" as json
-@python module "os.path" as _path
+# High-performance file system module (C++ backed)
+@cpp module "./src/cpp/fs" as fs_native
 
 fn read(path):
-    if exists(path):
-        f = _builtins.open(path, "r")
-        content = f.read()
-        f.close()
-        return content
-    return null
+    # Uses native C++ implementation for high performance
+    fs_native.read(path)
 
 fn write(path, content):
-    f = _builtins.open(path, "w")
-    f.write(content)
-    f.close()
-    return true
-
-fn read_json(path):
-    if exists(path):
-        f = _builtins.open(path, "r")
-        content = f.read()
-        f.close()
-        return json.loads(content)
-    return {}
-
-fn write_json(path, data):
-    f = _builtins.open(path, "w")
-    f.write(json.dumps(data))
-    f.close()
-    return true
+    fs_native.write(path, content)
 
 fn exists(path):
-    return _os.path.exists(path)
-
-fn delete(path):
-    _os.remove(path)
-    return true
-
-fn list_dir(path):
-    if exists(path):
-        return _os.listdir(path)
-    return []
+    fs_native.exists(path)
 
 fn is_file(path):
-    return _os.path.isfile(path)
+    fs_native.is_file(path)
 
 fn is_dir(path):
-    return _os.path.isdir(path)
+    fs_native.is_dir(path)
 
 fn join_path(a, b):
-    return _os.path.join(a, b)
+    fs_native.join_path(a, b)
 
 fn get_parent(path):
-    return _os.path.dirname(path)
+    fs_native.get_parent(path)
 
 fn get_name(path):
-    return _os.path.basename(path)
+    fs_native.get_name(path)
+
+fn list_dir(path):
+    fs_native.list_dir(path)

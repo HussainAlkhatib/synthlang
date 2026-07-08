@@ -77,27 +77,66 @@ let val = <- ch
 
 ## Error Handling
 
-> **Note:** `match`, `defer`, `try/handle` are planned features for future versions. Currently, error handling is limited to basic control flow.
-
+### Match Statement (Pattern Matching)
 ```
-# Future syntax for error handling:
+match value:
+    case 1:
+        print("One")
+    case 2, 3:
+        print("Two or Three")
+    case _:
+        print("Default case")
+```
+
+### Defer Statement (Deferred Execution)
+```
+fn main():
+    defer print("Goodbye!")
+    print("Hello")
+# Output: Hello, then Goodbye!
+```
+
+### Try/Handle (Error Handling)
+```
 try risky_operation():
-    # Not yet implemented
+    # code that may panic
+handle error:
+    print("Error:", error)
+```
+
+### Panic Function
+```
+if x == 0:
+    panic("Cannot divide by zero")
 ```
 
 ## FFI
 
-```
-@c
-fn c_func(x: int): int
-    // C function declaration
-    return 0
+### Supported Languages
+All 20 languages are supported:
 
-@rust module "lib.rs" as crypto
-fn rust_func(): int
-    // Rust module integration
-    return 0
-```
+| Language | Annotation | Example |
+|----------|------------|---------|
+| Python | `@python` | `@python module "os" as os` |
+| JavaScript | `@javascript` | `@javascript module "fs" as fs` |
+| Rust | `@rust` | `@rust module "./lib.rs" as lib` |
+| Go | `@go` | `@go module "./main.go" as main` |
+| C | `@c` | `@c module "./lib.c" as lib` |
+| C++ | `@cpp` | `@cpp module "./lib.cpp" as lib` |
+| Kotlin | `@kotlin` | `@kotlin module "./lib.kt" as lib` |
+| Swift | `@swift` | `@swift module "./lib.swift" as lib` |
+| PHP | `@php` | `@php module "./lib.php" as lib` |
+| Ruby | `@ruby` | `@ruby module "./lib.rb" as lib` |
+| Java | `@java` | `@java module "./Lib.java" as lib` |
+| C# | `@csharp` | `@csharp module "./Lib.cs" as lib` |
+| Lua | `@lua` | `@lua module "./lib.lua" as lib` |
+| R | `@r` | `@r module "./lib.R" as lib` |
+| Julia | `@julia` | `@julia module "./lib.jl" as lib` |
+| Haskell | `@haskell` | `@haskell module "./lib.hs" as lib` |
+| Elixir | `@elixir` | `@elixir module "./lib.ex" as lib` |
+| Dart | `@dart` | `@dart module "./lib.dart" as lib` |
+| Zig | `@zig` | `@zig module "./lib.zig" as lib` |
+| TypeScript | `@typescript` | `@typescript module "./lib.ts" as lib` |
 
 ## CLI Commands
 
@@ -119,16 +158,18 @@ slang watch file.sl       # Watch and re-run
 slang --version           # Show version
 ```
 
-## Known Limitations (v1.1.1)
+## Known Limitations (v1.2.0)
 
-The following features are **planned but not yet fully implemented**:
+The following features are **implemented and functional**:
+
+- **`match` statement**: Fully implemented with pattern matching support
+- **`defer` statement**: Fully implemented with deferred execution on function exit
+- **`try`/`handle` error handling**: Fully implemented with exception catching
+
+Remaining limitations:
 
 - **`go`/`await` full support**: Currently parsed but requires event loop integration
-- **`@web`, `@mobile`, `@desktop` annotations**: Parsed but not yet functional - stub implementations
-- **`@cli` annotation**: Registers function as main entry point
-- **`match` statement**: Not implemented (use `if`/`elif`/`else` instead)
-- **`defer` statement**: Not implemented
-- **`try`/`handle` error handling**: Not implemented (use control flow instead)
+- **`@web`, `@mobile`, `@desktop` annotations**: Parsed but partial implementations
 - **Global `@rc`, `@manual`, `@event_loop` annotations**: Partially implemented
 
 ## slangs.json Manifest

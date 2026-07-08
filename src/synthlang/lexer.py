@@ -23,6 +23,7 @@ class TokenType(Enum):
     PANIC = auto()
     DEFER = auto()
     MATCH = auto()
+    CASE = auto()
     AS = auto()
 
     ANNOT_MANUAL = auto()
@@ -41,6 +42,20 @@ class TokenType(Enum):
     ANNOT_CLI = auto()
     ANNOT_DESKTOP = auto()
     ANNOT_MODULE = auto()
+    ANNOT_CPP = auto()
+    ANNOT_KOTLIN = auto()
+    ANNOT_SWIFT = auto()
+    ANNOT_PHP = auto()
+    ANNOT_RUBY = auto()
+    ANNOT_CSHARP = auto()
+    ANNOT_LUA = auto()
+    ANNOT_R = auto()
+    ANNOT_JULIA = auto()
+    ANNOT_HASKELL = auto()
+    ANNOT_ELIXIR = auto()
+    ANNOT_DART = auto()
+    ANNOT_ZIG = auto()
+    ANNOT_TYPESCRIPT = auto()
 
     PLUS = auto()
     MINUS = auto()
@@ -112,7 +127,7 @@ class Lexer:
         'for': TokenType.FOR, 'while': TokenType.WHILE, 'in': TokenType.IN,
         'return': TokenType.RETURN, 'go': TokenType.GO, 'await': TokenType.AWAIT,
         'try': TokenType.TRY, 'handle': TokenType.HANDLE, 'panic': TokenType.PANIC,
-        'defer': TokenType.DEFER, 'match': TokenType.MATCH, 'module': TokenType.ANNOT_MODULE,
+        'defer': TokenType.DEFER, 'match': TokenType.MATCH, 'case': TokenType.CASE, 'module': TokenType.ANNOT_MODULE,
         'as': TokenType.AS,
     }
 
@@ -127,7 +142,14 @@ class Lexer:
         'python': TokenType.ANNOT_PYTHON, 'javascript': TokenType.ANNOT_JAVASCRIPT,
         'web': TokenType.ANNOT_WEB, 'mobile': TokenType.ANNOT_MOBILE,
         'cli': TokenType.ANNOT_CLI, 'desktop': TokenType.ANNOT_DESKTOP,
-        'module': TokenType.ANNOT_MODULE,
+        'module': TokenType.ANNOT_MODULE, 'cpp': TokenType.ANNOT_CPP,
+        'kotlin': TokenType.ANNOT_KOTLIN, 'swift': TokenType.ANNOT_SWIFT,
+        'php': TokenType.ANNOT_PHP, 'ruby': TokenType.ANNOT_RUBY,
+        'csharp': TokenType.ANNOT_CSHARP, 'lua': TokenType.ANNOT_LUA,
+        'r': TokenType.ANNOT_R, 'julia': TokenType.ANNOT_JULIA,
+        'haskell': TokenType.ANNOT_HASKELL, 'elixir': TokenType.ANNOT_ELIXIR,
+        'dart': TokenType.ANNOT_DART, 'zig': TokenType.ANNOT_ZIG,
+        'typescript': TokenType.ANNOT_TYPESCRIPT,
     }
 
     def __init__(self, source: str):

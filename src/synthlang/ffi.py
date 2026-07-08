@@ -6,6 +6,8 @@ import sys
 import asyncio
 import importlib
 import json
+import tempfile
+import platform
 from pathlib import Path
 from typing import Any, Callable, Optional, Dict
 from dataclasses import dataclass, field
@@ -336,6 +338,538 @@ console.log(JSON.stringify(result));'''
                 language='go', module=source_path, original_error=result.stderr
             )
         return output_path
+
+    def load_cpp_module(self, path: str, source: bool = False) -> Any:
+        """Load a C++ module via ctypes (C ABI compatible shared library)."""
+        key = f"cpp:{path}"
+        if key in self.loaded_modules:
+            return self.loaded_modules[key].module_obj
+        
+        if source and path.endswith('.cpp'):
+            so_path = self.compile_cpp_module(path)
+            path = so_path
+        
+        try:
+            lib = ctypes.CDLL(path)
+            imported = ImportedModule(
+                language='cpp',
+                module_path=path,
+                as_name=os.path.basename(path),
+                module_obj=lib
+            )
+            self.loaded_modules[key] = imported
+            self.cpp_modules[path] = lib
+            return lib
+        except Exception as e:
+            raise FFIError(f"Cannot load C++ module '{path}': {e}", language='cpp', module=path, original_error=str(e))
+
+    def compile_cpp_module(self, source_path: str, output_path: str = None) -> str:
+        """Compile C++ source to a shared library."""
+        if not output_path:
+            base = os.path.splitext(source_path)[0]
+            ext = '.so' if platform.system() != 'Windows' else '.dll'
+            output_path = f"{base}{ext}"
+        
+        result = subprocess.run(
+            ['g++', '-shared', '-fPIC', '-o', output_path, source_path],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode != 0:
+            raise FFIError(f"C++ compilation failed: {result.stderr}", language='cpp', module=source_path, original_error=result.stderr)
+        return output_path
+
+    def load_kotlin_module(self, path: str) -> Any:
+        """Load a Kotlin module compiled to shared library via Kotlin/Native."""
+        key = f"kotlin:{path}"
+        if key in self.loaded_modules:
+            return self.loaded_modules[key].module_obj
+        
+        so_path = self.compile_kotlin_module(path) if path.endswith('.kt') else path
+        
+        try:
+            lib = ctypes.CDLL(so_path)
+            imported = ImportedModule(
+                language='kotlin',
+                module_path=path,
+                as_name=os.path.basename(path),
+                module_obj=lib
+            )
+            self.loaded_modules[key] = imported
+            return lib
+        except Exception as e:
+            raise FFIError(f"Cannot load Kotlin module '{path}': {e}", language='kotlin', module=path, original_error=str(e))
+
+    def compile_kotlin_module(self, source_path: str) -> str:
+        """Compile Kotlin to shared library using kotlinc-native."""
+        base = os.path.splitext(source_path)[0]
+        ext = '.so' if platform.system() != 'Windows' else '.dll'
+        output_path = f"{base}{ext}"
+        
+        result = subprocess.run(
+            ['kotlinc-native', source_path, '-o', base],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode != 0:
+            raise FFIError(f"Kotlin compilation failed: {result.stderr}", language='kotlin', module=source_path, original_error=result.stderr)
+        return output_path
+
+    def load_swift_module(self, path: str) -> Any:
+        """Load a Swift module compiled to shared library."""
+        key = f"swift:{path}"
+        if key in self.loaded_modules:
+            return self.loaded_modules[key].module_obj
+        
+        so_path = self.compile_swift_module(path) if path.endswith('.swift') else path
+        
+        try:
+            lib = ctypes.CDLL(so_path)
+            imported = ImportedModule(
+                language='swift',
+                module_path=path,
+                as_name=os.path.basename(path),
+                module_obj=lib
+            )
+            self.loaded_modules[key] = imported
+            return lib
+        except Exception as e:
+            raise FFIError(f"Cannot load Swift module '{path}': {e}", language='swift', module=path, original_error=str(e))
+
+    def compile_swift_module(self, source_path: str) -> str:
+        """Compile Swift to shared library."""
+        base = os.path.splitext(source_path)[0]
+        ext = '.dylib' if platform.system() == 'Darwin' else '.so'
+        output_path = f"{base}{ext}"
+        
+        result = subprocess.run(
+            ['swiftc', '-emit-library', '-o', output_path, source_path],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode != 0:
+            raise FFIError(f"Swift compilation failed: {result.stderr}", language='swift', module=source_path, original_error=result.stderr)
+        return output_path
+
+    def load_php_module(self, path: str) -> Any:
+        """Load a PHP module via subprocess call to php."""
+        key = f"php:{path}"
+        self.loaded_modules[key] = ImportedModule(
+            language='php',
+            module_path=path,
+            as_name=os.path.basename(path),
+            module_obj=None
+        )
+        return self.loaded_modules[key]
+
+    def call_php(self, module_path: str, func_name: str, args: list = None) -> Any:
+        """Call a PHP function via subprocess."""
+        php_code = f'''<?php
+require_once "{module_path}";
+$result = {func_name}({json.dumps(args or [])});
+echo json_encode($result);
+?>'''
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.php', delete=False) as f:
+            f.write(php_code)
+            temp_file = f.name
+        
+        try:
+            result = subprocess.run(
+                ['php', temp_file],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            os.unlink(temp_file)
+            if result.returncode == 0:
+                try:
+                    return json.loads(result.stdout.strip())
+                except json.JSONDecodeError:
+                    return result.stdout.strip()
+            raise FFIError(f"PHP error: {result.stderr}", language='php', module=module_path, function=func_name)
+        except FileNotFoundError:
+            raise FFIError("'php' not found - PHP FFI requires PHP installed", language='php')
+
+    def load_ruby_module(self, path: str) -> Any:
+        """Load a Ruby module via subprocess."""
+        key = f"ruby:{path}"
+        self.loaded_modules[key] = ImportedModule(
+            language='ruby',
+            module_path=path,
+            as_name=os.path.basename(path),
+            module_obj=None
+        )
+        return self.loaded_modules[key]
+
+    def call_ruby(self, module_path: str, func_name: str, args: list = None) -> Any:
+        """Call a Ruby function via subprocess."""
+        ruby_code = f'''require "{module_path}"
+puts {func_name}({json.dumps(args or [])}).to_json'''
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.rb', delete=False) as f:
+            f.write(ruby_code)
+            temp_file = f.name
+        
+        try:
+            result = subprocess.run(
+                ['ruby', temp_file],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            os.unlink(temp_file)
+            if result.returncode == 0:
+                try:
+                    return json.loads(result.stdout.strip())
+                except json.JSONDecodeError:
+                    return result.stdout.strip()
+            raise FFIError(f"Ruby error: {result.stderr}", language='ruby', module=module_path, function=func_name)
+        except FileNotFoundError:
+            raise FFIError("'ruby' not found - Ruby FFI requires Ruby installed", language='ruby')
+
+    def load_lua_module(self, path: str) -> Any:
+        """Load a Lua module via lupa or subprocess."""
+        key = f"lua:{path}"
+        try:
+            import lupa
+            lua = lupa.LuaRuntime()
+            with open(path, 'r') as f:
+                lua.execute(f.read())
+            self.loaded_modules[key] = ImportedModule(
+                language='lua',
+                module_path=path,
+                as_name=os.path.basename(path),
+                module_obj=lua
+            )
+            return lua
+        except ImportError:
+            # Fallback to subprocess
+            self.loaded_modules[key] = ImportedModule(
+                language='lua',
+                module_path=path,
+                as_name=os.path.basename(path),
+                module_obj=None
+            )
+            return self.loaded_modules[key]
+
+    def call_lua(self, module_path: str, func_name: str, args: list = None) -> Any:
+        """Call a Lua function."""
+        key = f"lua:{module_path}"
+        if key in self.loaded_modules and self.loaded_modules[key].module_obj:
+            lua = self.loaded_modules[key].module_obj
+            return lua.call(func_name, *args or [])
+        raise FFIError("Lua FFI requires lupa package or use subprocess mode", language='lua')
+
+    def load_r_module(self, path: str) -> Any:
+        """Load an R module via subprocess."""
+        key = f"r:{path}"
+        self.loaded_modules[key] = ImportedModule(
+            language='r',
+            module_path=path,
+            as_name=os.path.basename(path),
+            module_obj=None
+        )
+        return self.loaded_modules[key]
+
+    def call_r(self, module_path: str, func_name: str, args: list = None) -> Any:
+        """Call an R function via subprocess."""
+        r_code = f'''source("{module_path}")
+cat(toJSON({func_name}({paste(args or [], collapse=", ")})))'''
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.R', delete=False) as f:
+            f.write(r_code)
+            temp_file = f.name
+        
+        try:
+            result = subprocess.run(
+                ['Rscript', temp_file],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            os.unlink(temp_file)
+            if result.returncode == 0:
+                try:
+                    return json.loads(result.stdout.strip())
+                except json.JSONDecodeError:
+                    return result.stdout.strip()
+            raise FFIError(f"R error: {result.stderr}", language='r', module=module_path, function=func_name)
+        except FileNotFoundError:
+            raise FFIError("'Rscript' not found - R FFI requires R installed", language='r')
+
+    def load_julia_module(self, path: str) -> Any:
+        """Load a Julia module via subprocess."""
+        key = f"julia:{path}"
+        self.loaded_modules[key] = ImportedModule(
+            language='julia',
+            module_path=path,
+            as_name=os.path.basename(path),
+            module_obj=None
+        )
+        return self.loaded_modules[key]
+
+    def call_julia(self, module_path: str, func_name: str, args: list = None) -> Any:
+        """Call a Julia function via subprocess."""
+        jl_code = f'''include("{module_path}")
+println(JSON.json({func_name}({join(args or [], ", ")}))'''
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.jl', delete=False) as f:
+            f.write(jl_code)
+            temp_file = f.name
+        
+        try:
+            result = subprocess.run(
+                ['julia', temp_file],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            os.unlink(temp_file)
+            if result.returncode == 0:
+                try:
+                    return json.loads(result.stdout.strip())
+                except json.JSONDecodeError:
+                    return result.stdout.strip()
+            raise FFIError(f"Julia error: {result.stderr}", language='julia', module=module_path, function=func_name)
+        except FileNotFoundError:
+            raise FFIError("'julia' not found - Julia FFI requires Julia installed", language='julia')
+
+    def load_haskell_module(self, path: str) -> Any:
+        """Load a Haskell module compiled to shared library via GHC."""
+        key = f"haskell:{path}"
+        if key in self.loaded_modules:
+            return self.loaded_modules[key].module_obj
+        
+        so_path = self.compile_haskell_module(path) if path.endswith('.hs') else path
+        
+        try:
+            lib = ctypes.CDLL(so_path)
+            imported = ImportedModule(
+                language='haskell',
+                module_path=path,
+                as_name=os.path.basename(path),
+                module_obj=lib
+            )
+            self.loaded_modules[key] = imported
+            return lib
+        except Exception as e:
+            raise FFIError(f"Cannot load Haskell module '{path}': {e}", language='haskell', module=path, original_error=str(e))
+
+    def compile_haskell_module(self, source_path: str) -> str:
+        """Compile Haskell to shared library via GHC."""
+        base = os.path.splitext(source_path)[0]
+        ext = '.so' if platform.system() != 'Windows' else '.dll'
+        output_path = f"{base}{ext}"
+        
+        result = subprocess.run(
+            ['ghc', '-fPIC', '-shared', '-o', output_path, source_path],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode != 0:
+            raise FFIError(f"Haskell compilation failed: {result.stderr}", language='haskell', module=source_path, original_error=result.stderr)
+        return output_path
+
+    def load_zig_module(self, path: str) -> Any:
+        """Load a Zig module compiled to shared library."""
+        key = f"zig:{path}"
+        if key in self.loaded_modules:
+            return self.loaded_modules[key].module_obj
+        
+        so_path = self.compile_zig_module(path) if path.endswith('.zig') else path
+        
+        try:
+            lib = ctypes.CDLL(so_path)
+            imported = ImportedModule(
+                language='zig',
+                module_path=path,
+                as_name=os.path.basename(path),
+                module_obj=lib
+            )
+            self.loaded_modules[key] = imported
+            return lib
+        except Exception as e:
+            raise FFIError(f"Cannot load Zig module '{path}': {e}", language='zig', module=path, original_error=str(e))
+
+    def compile_zig_module(self, source_path: str) -> str:
+        """Compile Zig to shared library."""
+        base = os.path.splitext(source_path)[0]
+        ext = '.so' if platform.system() != 'Windows' else '.dll'
+        output_path = f"{base}{ext}"
+        
+        result = subprocess.run(
+            ['zig', 'build-lib', '-dynamic', '-o', output_path, source_path],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode != 0:
+            raise FFIError(f"Zig compilation failed: {result.stderr}", language='zig', module=source_path, original_error=result.stderr)
+        return output_path
+
+    def load_dart_module(self, path: str) -> Any:
+        """Load a Dart module compiled to native executable."""
+        key = f"dart:{path}"
+        if key in self.loaded_modules:
+            return self.loaded_modules[key].module_obj
+        
+        exe_path = self.compile_dart_module(path) if path.endswith('.dart') else path
+        
+        self.loaded_modules[key] = ImportedModule(
+            language='dart',
+            module_path=path,
+            as_name=os.path.basename(path),
+            module_obj=exe_path
+        )
+        return self.loaded_modules[key]
+
+    def compile_dart_module(self, source_path: str) -> str:
+        """Compile Dart to native executable."""
+        base = os.path.splitext(source_path)[0]
+        output_path = f"{base}_compiled"
+        
+        result = subprocess.run(
+            ['dart', 'compile', 'exe', '-o', output_path, source_path],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode != 0:
+            raise FFIError(f"Dart compilation failed: {result.stderr}", language='dart', module=source_path, original_error=result.stderr)
+        return output_path
+
+    def load_elixir_module(self, path: str) -> Any:
+        """Load an Elixir module via BEAM."""
+        key = f"elixir:{path}"
+        self.loaded_modules[key] = ImportedModule(
+            language='elixir',
+            module_path=path,
+            as_name=os.path.basename(path),
+            module_obj=None
+        )
+        return self.loaded_modules[key]
+
+    def call_elixir(self, module_path: str, func_name: str, args: list = None) -> Any:
+        """Call an Elixir function via erl subprocess."""
+        try:
+            result = subprocess.run(
+                ['erl', '-eval', 'init stop', '-noshell'],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                cwd=os.path.dirname(module_path) or '.'
+            )
+            if result.returncode == 0:
+                return result.stdout.strip()
+            raise FFIError(f"Elixir error: {result.stderr}", language='elixir', module=module_path, function=func_name)
+        except FileNotFoundError:
+            raise FFIError("'erl' not found - Elixir FFI requires Erlang/OTP installed", language='elixir')
+
+    def call_cpp(self, module_path: str, func_name: str, args: list = None) -> Any:
+        """Call a C++ function via FFI."""
+        lib = self.load_cpp_module(module_path)
+        return self.call_c(module_path, func_name, args or [])
+
+    def call_kotlin(self, module_path: str, func_name: str, args: list = None) -> Any:
+        """Call a Kotlin function via FFI."""
+        return self.call_c(module_path, func_name, args or [])
+
+    def call_swift(self, module_path: str, func_name: str, args: list = None) -> Any:
+        """Call a Swift function via FFI."""
+        return self.call_c(module_path, func_name, args or [])
+
+    def call_java(self, module_path: str, func_name: str, args: list = None) -> Any:
+        """Call a Java function via JNI."""
+        try:
+            import jpype
+            if not jpype.is_started():
+                jpype.startJVM()
+            jpype.JPackage(module_path)
+            return None
+        except ImportError:
+            raise FFIError("Java FFI requires jpype package", language='java')
+
+    def load_java_module(self, path: str) -> Any:
+        """Load a Java module via JNI."""
+        key = f"java:{path}"
+        if key in self.loaded_modules:
+            return self.loaded_modules[key].module_obj
+        self.loaded_modules[key] = ImportedModule(
+            language='java',
+            module_path=path,
+            as_name=os.path.basename(path),
+            module_obj=None
+        )
+        return self.loaded_modules[key]
+
+    def load_csharp_module(self, path: str) -> Any:
+        """Load a C# module via .NET Core."""
+        key = f"csharp:{path}"
+        if key in self.loaded_modules:
+            return self.loaded_modules[key].module_obj
+        self.loaded_modules[key] = ImportedModule(
+            language='csharp',
+            module_path=path,
+            as_name=os.path.basename(path),
+            module_obj=None
+        )
+        return self.loaded_modules[key]
+
+    def load_typescript_module(self, path: str) -> Any:
+        """Load a TypeScript module via transpilation to JavaScript."""
+        key = f"typescript:{path}"
+        if key in self.loaded_modules:
+            return self.loaded_modules[key].module_obj
+        # Transpile to JavaScript
+        self.compile_typescript_module(path)
+        self.loaded_modules[key] = ImportedModule(
+            language='typescript',
+            module_path=path,
+            as_name=os.path.basename(path),
+            module_obj=path
+        )
+        return self.loaded_modules[key]
+
+    def compile_typescript_module(self, source_path: str) -> str:
+        """Compile TypeScript to JavaScript."""
+        base = os.path.splitext(source_path)[0]
+        output_path = f"{base}.js"
+        result = subprocess.run(
+            ['tsc', source_path, '--outDir', os.path.dirname(base) or '.'],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode != 0:
+            raise FFIError(f"TypeScript compilation failed: {result.stderr}", language='typescript', module=source_path, original_error=result.stderr)
+        return output_path
+
+    def call_csharp(self, module_path: str, func_name: str, args: list = None) -> Any:
+        """Call a C# function via .NET Core hosting."""
+        raise FFIError("C# FFI requires .NET Core hosting", language='csharp')
+
+    def call_typescript(self, module_path: str, func_name: str, args: list = None) -> Any:
+        """Call TypeScript by transpiling to JavaScript and running."""
+        ts_code = f'''const module = require("{module_path}");
+const result = module.{func_name}({json.dumps(args or [])});
+console.log(JSON.stringify(result));'''
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.js', delete=False) as f:
+            f.write(ts_code)
+            temp_file = f.name
+        
+        try:
+            # First transpile TypeScript to JavaScript
+            subprocess.run(['tsc', '--outDir', '/dev/null', '--emitDeclarationOnly', module_path], capture_output=True)
+            # Then execute via Node.js
+            result = subprocess.run(
+                ['node', temp_file],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            os.unlink(temp_file)
+            if result.returncode == 0:
+                try:
+                    return json.loads(result.stdout.strip())
+                except json.JSONDecodeError:
+                    return result.stdout.strip()
+            raise FFIError(f"TypeScript error: {result.stderr}", language='typescript', module=module_path, function=func_name)
+        except FileNotFoundError:
+            raise FFIError("'tsc' or 'node' not found - TypeScript FFI requires TypeScript and Node.js", language='typescript')
 
 
 ffi_loader = FFILoader()

@@ -30,6 +30,10 @@ class NodeType(Enum):
     BLOCK = auto()
     LOAD_VAR = auto()
     IMPORT = auto()
+    MATCH = auto()
+    CASE = auto()
+    DEFER = auto()
+    TRY = auto()
 
 
 @dataclass
@@ -147,6 +151,8 @@ class Parser:
             return self._parse_function_decl(annotations)
         elif self.current_token.type == TokenType.IF:
             return self._parse_if_stmt()
+        elif self.current_token.type == TokenType.MATCH:
+            return self._parse_match_stmt()
         elif self.current_token.type == TokenType.FOR:
             return self._parse_for_stmt()
         elif self.current_token.type == TokenType.WHILE:
@@ -177,6 +183,11 @@ class Parser:
             TokenType.ANNOT_GO_LANG, TokenType.ANNOT_C, TokenType.ANNOT_JAVA,
             TokenType.ANNOT_PYTHON, TokenType.ANNOT_JAVASCRIPT, TokenType.ANNOT_WEB,
             TokenType.ANNOT_MOBILE, TokenType.ANNOT_CLI, TokenType.ANNOT_DESKTOP,
+            TokenType.ANNOT_CPP, TokenType.ANNOT_KOTLIN, TokenType.ANNOT_SWIFT,
+            TokenType.ANNOT_PHP, TokenType.ANNOT_RUBY, TokenType.ANNOT_CSHARP,
+            TokenType.ANNOT_LUA, TokenType.ANNOT_R, TokenType.ANNOT_JULIA,
+            TokenType.ANNOT_HASKELL, TokenType.ANNOT_ELIXIR, TokenType.ANNOT_DART,
+            TokenType.ANNOT_ZIG, TokenType.ANNOT_TYPESCRIPT,
         ):
             name = self.current_token.value[1:]
             annotations.append(Annotation(name=name))
@@ -796,6 +807,166 @@ class Parser:
             expr = self._parse_expression()
             return ASTNode(NodeType.ASSIGNMENT, value=name, children=[expr])
         return self._parse_expression()
+
+    def _parse_match_stmt(self) -> Optional[ASTNode]:
+        """Parse a match statement with pattern matching.
+        
+        Syntax:
+            match value:
+                case pattern1:
+                    statements
+                case pattern2, pattern3:
+                    statements
+                case _:
+                    statements
+        """
+        self._advance()  # consume match
+        value_expr = self._parse_expression()
+        
+        if not self._expect(TokenType.COLON):
+            context = self._get_line_context(self.current_token.line if self.current_token else 0)
+            raise ParseError(
+                "Expected ':' after match expression\n"
+                f"    {context}",
+                self.current_token.line if self.current_token else 0,
+                self.current_token.column if self.current_token else 0,
+                ":", None, context, self.source
+            )
+        
+        if not self._expect(TokenType.NEWLINE):
+            pass
+        
+        cases = []
+        while self.current_token and self.current_token.type not in (TokenType.DEDENT, TokenType.EOF):
+            if self.current_token.type in (TokenType.NEWLINE, TokenType.INDENT):
+                self._advance()
+                continue
+            
+            if self.current_token and self.current_token.type == TokenType.CASE:
+                self._advance()  # consume case
+                
+                # Parse patterns (comma-separated)
+                patterns = []
+                patterns.append(self._parse_expression())
+                
+                while self.current_token and self.current_token.type == TokenType.COMMA:
+                    self._advance()  # consume comma
+                    patterns.append(self._parse_expression())
+                
+                if not self._expect(TokenType.COLON):
+                    context = self._get_line_context(self.current_token.line if self.current_token else 0)
+                    raise ParseError(
+                        "Expected ':' after case patterns\n"
+                        f"    {context}",
+                        self.current_token.line if self.current_token else 0,
+                        self.current_token.column if self.current_token else 0,
+                        ":", None, context, self.source
+                    )
+                if not self._expect(TokenType.NEWLINE):
+                    pass
+                
+                # Parse case body
+                body = []
+                while self.current_token and self.current_token.type not in (TokenType.DEDENT, TokenType.CASE, TokenType.EOF):
+                    if self.current_token.type in (TokenType.NEWLINE, TokenType.INDENT):
+                        self._advance()
+                        continue
+                    stmt = self._parse_statement()
+                    if stmt:
+                        body.append(stmt)
+                
+                cases.append((patterns, ASTNode(NodeType.BLOCK, children=body)))
+        
+        if self.current_token and self.current_token.type == TokenType.DEDENT:
+            self._advance()
+        
+        node = ASTNode(NodeType.MATCH, value=None)
+        node.children = [value_expr]
+        for patterns, body in cases:
+            for pattern in patterns:
+                node.children.append(pattern)
+            node.children.append(body)
+        return node
+
+    def _parse_defer_stmt(self) -> Optional[ASTNode]:
+        """Parse a defer statement for deferred execution.
+        
+        Syntax:
+            defer expression
+        """
+        self._advance()  # consume defer
+        expr = self._parse_expression()
+        return ASTNode(NodeType.DEFER, children=[expr])
+
+    def _parse_try_stmt(self) -> Optional[ASTNode]:
+        """Parse a try/handle statement for error handling.
+        
+        Syntax:
+            try expression:
+                statements
+            handle error:
+                statements
+        """
+        self._advance()  # consume try
+        try_expr = self._parse_expression()
+        
+        if not self._expect(TokenType.COLON):
+            context = self._get_line_context(self.current_token.line if self.current_token else 0)
+            raise ParseError(
+                "Expected ':' after try expression\n"
+                f"    {context}",
+                self.current_token.line if self.current_token else 0,
+                self.current_token.column if self.current_token else 0,
+                ":", None, context, self.source
+            )
+        if not self._expect(TokenType.NEWLINE):
+            pass
+        
+        try_body = []
+        while self.current_token and self.current_token.type not in (TokenType.HANDLE, TokenType.DEDENT, TokenType.EOF):
+            if self.current_token.type in (TokenType.NEWLINE, TokenType.INDENT):
+                self._advance()
+                continue
+            stmt = self._parse_statement()
+            if stmt:
+                try_body.append(stmt)
+        
+        handle_error_name = "_error"
+        handle_body = []
+        
+        if self.current_token and self.current_token.type == TokenType.HANDLE:
+            self._advance()  # consume handle
+            
+            if self.current_token and self.current_token.type == TokenType.IDENTIFIER:
+                handle_error_name = self.current_token.value
+                self._advance()  # consume error variable name
+            
+            if not self._expect(TokenType.COLON):
+                context = self._get_line_context(self.current_token.line if self.current_token else 0)
+                raise ParseError(
+                    "Expected ':' after handle clause\n"
+                    f"    {context}",
+                    self.current_token.line if self.current_token else 0,
+                    self.current_token.column if self.current_token else 0,
+                    ":", None, context, self.source
+                )
+            if not self._expect(TokenType.NEWLINE):
+                pass
+            
+            while self.current_token and self.current_token.type not in (TokenType.DEDENT, TokenType.EOF):
+                if self.current_token.type in (TokenType.NEWLINE, TokenType.INDENT):
+                    self._advance()
+                    continue
+                stmt = self._parse_statement()
+                if stmt:
+                    handle_body.append(stmt)
+        
+        if self.current_token and self.current_token.type == TokenType.DEDENT:
+            self._advance()
+        
+        node = ASTNode(NodeType.TRY, value={'error_var': handle_error_name})
+        node.children = [try_expr, ASTNode(NodeType.BLOCK, children=try_body), ASTNode(NodeType.BLOCK, children=handle_body)]
+        return node
 
 
 if __name__ == '__main__':
