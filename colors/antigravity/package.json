@@ -1,0 +1,25 @@
+{
+    "name": "synthlang",
+    "displayName": "SynthLang",
+    "description": "SynthLang language support with syntax highlighting",
+    "version": "1.0.0",
+    "publisher": "synthlang",
+    "engines": {
+        "vscode": "^1.74.0"
+    },
+    "categories": ["Programming Languages"],
+    "icon": "synthlang.svg",
+    "contributes": {
+        "languages": [{
+            "id": "synthlang",
+            "aliases": ["SynthLang", "sl"],
+            "extensions": [".sl"],
+            "configuration": "./language-configuration.json"
+        }],
+        "grammars": [{
+            "language": "synthlang",
+            "scopeName": "source.synthlang",
+            "path": "./syntaxes/synthlang.tmLanguage.json"
+        }]
+    }
+}

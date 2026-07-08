@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="text/x-synthlang">
+    <comment>SynthLang source file</comment>
+    <glob pattern="*.sl"/>
+    <generic-icon name="application-x-synthlang"/>
+  </mime-type>
+</mime-info>

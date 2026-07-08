@@ -1,0 +1,21 @@
+{
+    "name": "synthlang",
+    "displayName": "SynthLang",
+    "description": "Syntax highlighting for SynthLang (.sl) files",
+    "version": "1.0.0",
+    "publisher": "synthlang",
+    "engines": {
+        "vscode": "^1.80.0"
+    },
+    "categories": ["Programming Languages"],
+    "languages": [{
+        "id": "synthlang",
+        "extensions": [".sl"],
+        "aliases": ["SynthLang", "sl"]
+    }],
+    "grammars": [{
+        "language": "synthlang",
+        "scopeName": "source.synthlang",
+        "path": "./syntaxes/synthlang.tmLanguage.json"
+    }]
+}

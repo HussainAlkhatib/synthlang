@@ -1,0 +1,6 @@
+let a = true
+let b = false
+print(a && b)
+print(a || b)
+print(!a)
+print(!b)

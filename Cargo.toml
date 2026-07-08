@@ -1,0 +1,23 @@
+[package]
+name = "synthlang-core"
+version = "1.0.0"
+edition = "2021"
+description = "SynthLang core components implemented in Rust"
+
+[lib]
+name = "synthlang_core"
+path = "src/rust/lib.rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.22", features = ["extension-module"] }
+logos = "0.14"
+nom = "7.1"
+thiserror = "1.0"
+anyhow = "1.0"
+lazy_static = "1.4"
+once_cell = "1.19"
+
+[profile.release]
+opt-level = 3
+lto = true

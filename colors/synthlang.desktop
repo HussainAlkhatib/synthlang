@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<desktop-entry name="synthlang">
+  <mime-type type="text/x-synthlang"/>
+  <default-icon name="application-x-synthlang"/>
+</desktop-entry>

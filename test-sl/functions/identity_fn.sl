@@ -1,0 +1,2 @@
+fn identity(x: int): int
+    return x

@@ -1,0 +1,2 @@
+let x: int = 5
+let x: int = 10

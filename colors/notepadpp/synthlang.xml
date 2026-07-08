@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<NotepadPlus>
+  <UserDefinedLanguage name="SynthLang" udlVersion="2.1">
+    <Settings>
+      <Global caseIgnored="yes" allowFoldOfComments="no" foldCompact="no" forcePureLC="0" decimalSeparator="0"/>
+      <Prefix Keywords1="\." Keywords2="\." Keywords3="\." Keywords4="\." Keywords5="\." Keywords6="\." Keywords7="\." Keywords8="\." />
+    </Settings>
+    <Keywords>
+      <Keywords name="Keywords1">let var fn if elif else for while return go await match defer try handle panic in as module</Keywords>
+      <Keywords name="Keywords2">int float string str bool void list dict object</Keywords>
+      <Keywords name="Keywords3">@python @javascript @rust @c @go @java</Keywords>
+      <Keywords name="Keywords4">true false</Keywords>
+      <Keywords name="Keywords5"></Keywords>
+      <Keywords name="Keywords6"></Keywords>
+      <Keywords name="Keywords7"></Keywords>
+      <Keywords name="Keywords8"></Keywords>
+    </Keywords>
+    <Operators><![CDATA[
++ - * / % = == != &lt; &gt; &lt;= &gt;= &amp;&amp; || !
+]]></Operators>
+    <Styles>
+      <WordsStyle name="DEFAULT" styleID="11" fgColor="C2C2C2" bgColor="1E1E1E"/>
+      <WordsStyle name="COMMENT" styleID="1" fgColor="008000" bgColor="1E1E1E"/>
+      <WordsStyle name="COMMENT LINE" styleID="2" fgColor="008000" bgColor="1E1E1E"/>
+      <WordsStyle name="COMMENT NESTED" styleID="15" fgColor="008000" bgColor="1E1E1E"/>
+      <WordsStyle name="NUMBER" styleID="4" fgColor="B8D7A3" bgColor="1E1E1E"/>
+      <WordsStyle name="WORD" styleID="5" fgColor="C586C0" bgColor="1E1E1E"/>
+      <WordsStyle name="STRING" styleID="6" fgColor="CE9179" bgColor="1E1E1E"/>
+      <WordsStyle name="CHARACTER" styleID="7" fgColor="CE9179" bgColor="1E1E1E"/>
+      <WordsStyle name="IDENTIFIER" styleID="3" fgColor="C2C2C2" bgColor="1E1E1E"/>
+      <WordsStyle name="OPERATOR" styleID="10" fgColor="D4D4D4" bgColor="1E1E1E"/>
+      <WordsStyle name="FOLDER IN COMMENT" styleID="19" fgColor="000000" bgColor="FFFFFF"/>
+      <WordsStyle name="DELIMITER" styleID="18" fgColor="C586C0" bgColor="1E1E1E"/>
+      <WordsStyle name="KEYWORD" styleID="9" fgColor="C586C0" bgColor="1E1E1E"/>
+      <WordsStyle name="KEYWORD2" styleID="12" fgColor="4EC9B0" bgColor="1E1E1E"/>
+      <WordsStyle name="KEYWORD3" styleID="13" fgColor="569CD0" bgColor="1E1E1E"/>
+      <WordsStyle name="KEYWORD4" styleID="14" fgColor="4F9CF0" bgColor="1E1E1E"/>
+    </Styles>
+    <LexerMode>
+      <CommChars slash="#/ * /" />
+      <CSS>no</CSS>
+      <Prefix>yes</Prefix>
+    </LexerMode>
+  </UserDefinedLanguage>
+</NotepadPlus>

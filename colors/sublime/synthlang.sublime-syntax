@@ -1,0 +1,33 @@
+name: SynthLang
+scope: source.synthlang
+file_extensions:
+  - sl
+contexts:
+  main:
+    - match: \#.*$
+      scope: comment.line.number-sign.synthlang
+    - match: //.*$
+      scope: comment.line.double-slash.synthlang
+    - begin: /\*
+      end: \*/
+      scope: comment.block.synthlang
+    - match: @(?:python|javascript|rust|c|go|java)\s+module\s+"[^"]*"\s+(?:as|import)\s+[a-zA-Z_][a-zA-Z0-9_, ]*
+      scope: keyword.control.import.synthlang
+    - match: @[a-zA-Z_][a-zA-Z0-9_]*
+      scope: keyword.annotation.synthlang
+    - match: \b(?:let|var|fn|if|elif|else|for|while|return|go|await|match|defer|try|handle|panic|in|as|module)\b
+      scope: keyword.control.synthlang
+    - match: \b(?:int|float|str|string|bool|void|list|dict|object)\b
+      scope: support.type.synthlang
+    - match: \b(true|false)\b
+      scope: constant.language.boolean.synthlang
+    - match: \b-?[0-9]+\b
+      scope: constant.numeric.integer.synthlang
+    - match: \b-?[0-9]+\.[0-9]+\b
+      scope: constant.numeric.float.synthlang
+    - match: "[^"]*"
+      scope: string.quoted.double.synthlang
+    - match: '[^']*'
+      scope: string.quoted.single.synthlang
+    - match: \+|-|\*|/|%|==|!=|<=|>=|<|>|&&|\|\||!
+      scope: keyword.operator.synthlang

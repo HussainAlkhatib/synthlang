@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fileTypes>
+  <fileType name="SynthLang" description="SynthLang source file">
+    <pattern RegExp>.*\.sl$</pattern>
+    <keyword list="SynthLang Keywords"/>
+    <keyword list="SynthLang Types"/>
+  </fileType>
+</fileTypes>
+
+<keywords>
+  <keyword name="SynthLang Keywords">let var fn if elif else for while return go await match defer try handle panic in as module</keyword>
+  <keyword name="SynthLang Types">int float string str bool void list dict object</keyword>
+</keywords>
