@@ -33,6 +33,7 @@ pub enum IRType {
     DEFER,
     MATCH,
     TRY,
+    EXEC_CODE_BLOCK,
 }
 
 impl Default for IRType {
@@ -127,3 +128,6 @@ pub fn label(name: &str) -> IRInstruction { IRInstruction::with_operand(IRType::
 pub fn defer_op(expr: &str) -> IRInstruction { IRInstruction::with_operand(IRType::DEFER, expr) }
 pub fn match_op() -> IRInstruction { IRInstruction::new(IRType::MATCH) }
 pub fn try_op() -> IRInstruction { IRInstruction::new(IRType::TRY) }
+pub fn exec_code_block(lang: &str, code: &str) -> IRInstruction {
+    IRInstruction { ty: IRType::EXEC_CODE_BLOCK, operand: Some(lang.to_string()), arg1: Some(code.to_string()), arg2: None, arg3: None }
+}

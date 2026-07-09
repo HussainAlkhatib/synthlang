@@ -1,16 +1,36 @@
-# Process management module (Go backed)
-@go module "./src/go/std/process" as proc_native
+# Process management module
+@python module "subprocess" as subprocess
+@python module "multiprocessing" as mp
 
-fn spawn(command: list):
-    proc_native.process_spawn(command[0], command[1:])
+fn spawn(fn: str, args: list):
+    from synthlang.vm import VM
+    proc = mp.Process(target=lambda f, a: f(*a), args=(fn, args))
+    proc.start()
+    return proc.pid
 
-fn run(command: str):
-    proc_native.process_execute(command, [])
+fn wait(pid: int):
+    import time
+    time.sleep(0.1)
 
-fn get_input(prompt: str):
-    native_input(prompt)
+fn kill(pid: int):
+    import os
+    import signal
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
 
-fn native_input(prompt):
-    # Use Python for stdin interaction
-    @python module "builtins" as _builtins
-    return _builtins.input(prompt)
+fn signal(pid: int, sig: int):
+    import os
+    import signal
+    os.kill(pid, sig)
+
+fn alive(pid: int):
+    import psutil
+    return psutil.pid_exists(pid)
+
+fn run(cmd: str, cwd: str = ""):
+    if cwd:
+        subprocess.run(cmd, shell=True, cwd=cwd, check=True)
+    else:
+        subprocess.run(cmd, shell=True, check=True)

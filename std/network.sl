@@ -1,21 +1,34 @@
-# Network module (Go backed)
-@go module "./src/go/std/network" as net_native
+# Network module
+@python module "socket" as socket
+@python module "requests" as requests
 
-fn create_socket(family: str, type: str):
-    # Use Go native for high-performance networking
-    net_native.network_connect("0.0.0.0:0", null)
+fn tcp_connect(host: str, port: int):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.connect((host, port))
+    return sock
 
-fn connect(sock, address: tuple):
-    net_native.network_connect(f"{address[0]}:{address[1]}", null)
+fn tcp_listen(port: int):
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind(('0.0.0.0', port))
+    server.listen(5)
+    return server
 
-fn send(sock, data):
-    pass  # Placeholder
+fn tcp_accept(listener) -> tuple:
+    conn, addr = listener.accept()
+    return (conn, addr)
 
-fn receive(sock, buffer_size: int):
-    pass  # Placeholder
+fn udp_send(host: str, port: int, data: str):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.sendto(data.encode(), (host, port))
 
-fn listen(address):
-    net_native.network_listen(address, null)
+fn udp_receive(port: int, size: int) -> str:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(('0.0.0.0', port))
+    data, _ = sock.recvfrom(size)
+    return data.decode()
 
-fn broadcast(message, port):
-    net_native.network_broadcast(message, port)
+fn http_get(url: str):
+    return requests.get(url).text
+
+fn http_post(url: str, data: str):
+    return requests.post(url, data=data).text

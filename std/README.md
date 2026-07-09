@@ -1,15 +1,16 @@
 # SynthLang Standard Library
 
-The `std/` directory contains SynthLang modules that wrap native Python/Rust/C/JavaScript libraries for easy import.
+The `std/` directory contains SynthLang modules that wrap native libraries for easy import.
 
 ## Available Modules
 
 | Module | Description | FFI Target |
 |--------|-------------|----------|
 | `discord.sl` | Discord bot framework wrapper | Python `discord.py` |
-| `fs.sl` | File system operations | Python `builtins`, `os`, `json` |
+| `fs.sl` | File system operations | C++ native (via `@cpp`) |
 | `http.sl` | HTTP client for APIs | Python `requests` |
-| `crypto.sl` | Cryptographic functions | Python `hashlib`, `secrets` |
+| `crypto.sl` | Cryptographic functions | Rust native (via `@rust`) |
+| `image.sl` | Image processing | C native (via `@c`) |
 | `process.sl` | Process management | Python `subprocess` |
 | `network.sl` | Socket programming | Python `socket` |
 | `env.sl` | Environment variables | Python `os` |
@@ -21,8 +22,8 @@ Import SynthLang standard library modules using the unified FFI syntax:
 
 ```sl
 @python module "std/discord" as discord
-@python module "std/fs" as fs
-@python module "std/crypto" as crypto
+@cpp module "std/fs" as fs
+@rust module "std/crypto" as crypto
 @python module "std/http" as http
 ```
 

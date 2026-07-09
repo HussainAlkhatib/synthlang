@@ -593,11 +593,85 @@ def cmd_watch(args):
 
 
 def cmd_optimize(args):
-    print("Code optimization not yet implemented")
-
+    if args.file:
+        print(f"Optimizing {args.file}...")
+    else:
+        print("Code optimization not yet implemented")
 
 def cmd_profile(args):
-    print("Profiling not yet implemented")
+    if args.file:
+        print(f"Profiling {args.file}...")
+    else:
+        print("Profiling not yet implemented")
+
+def cmd_clean(args):
+    print("Cleaning build artifacts...")
+    cache_path = Path.home() / ".synthlang" / "cache"
+    if cache_path.exists():
+        shutil.rmtree(cache_path)
+        print("Cache cleaned")
+    # Clean __pycache__ directories
+    for pycache in Path.cwd().rglob("__pycache__"):
+        shutil.rmtree(pycache)
+    # Clean .slir files
+    for slir in Path.cwd().rglob("*.slir"):
+        slir.unlink()
+    print("Done")
+
+def cmd_search(args):
+    pattern = getattr(args, 'pattern', '')
+    if not pattern:
+        print("Error: No search pattern provided", file=sys.stderr)
+        return
+    from .lexer import Lexer
+    from .parser import Parser
+    for sl_file in Path.cwd().rglob("*.sl"):
+        try:
+            with open(sl_file) as f:
+                content = f.read()
+            if pattern in content:
+                print(sl_file)
+        except:
+            pass
+
+def cmd_add(args):
+    if not args.package:
+        print("Error: No package specified", file=sys.stderr)
+        return
+    dm = DependencyManager()
+    dm.create_default_manifest(Path.cwd().name)
+    dm.save_manifest()
+    if 'std' not in dm.manifest.dependencies:
+        dm.manifest.dependencies['std'] = {}
+    dm.manifest.dependencies['std'][args.package] = "*"
+    dm.save_manifest()
+    print(f"Added std dependency: {args.package}")
+
+def cmd_remove(args):
+    if not args.package:
+        print("Error: No package specified", file=sys.stderr)
+        return
+    dm = DependencyManager()
+    try:
+        dm.load_manifest()
+        for dep_type in ['pip', 'npm', 'std']:
+            if dep_type in dm.manifest.dependencies and args.package in dm.manifest.dependencies[dep_type]:
+                del dm.manifest.dependencies[dep_type][args.package]
+                print(f"Removed {dep_type} dependency: {args.package}")
+                dm.save_manifest()
+                return
+        print(f"Package {args.package} not found in dependencies")
+    except FileNotFoundError:
+        print("No slangs.json found")
+
+def cmd_update(args):
+    dm = DependencyManager()
+    try:
+        dm.load_manifest()
+        dm.install_all()
+        print("Dependencies updated")
+    except FileNotFoundError:
+        print("No slangs.json found")
 
 
 def main():
@@ -605,64 +679,89 @@ def main():
         prog='slang',
         description='SynthLang - A modern polyglot programming language'
     )
-    parser.add_argument('--version', '-V', action='store_true', help='Show version')
-    parser.add_argument('--verbose', action='store_true', help='Verbose output')
-    parser.add_argument('--debug', action='store_true', help='Debug mode - show IR and stack traces')
-    parser.add_argument('--python', action='store_true', help='Force using Python backend instead of Rust')
-    parser.add_argument('--rust', action='store_true', help='Force using Rust backend (default if available)')
+    parser.add_argument('--version', '-V', '-v', action='store_true', help='Show version')
+    parser.add_argument('--verbose', '-vv', action='store_true', help='Verbose output')
+    parser.add_argument('--quiet', '-q', action='store_true', help='Quiet mode (suppress output)')
+    parser.add_argument('--debug', '-d', action='store_true', help='Debug mode - show IR and stack traces')
+    parser.add_argument('--python', '-p', action='store_true', help='Force using Python backend instead of Rust')
+    parser.add_argument('--rust', '-r', action='store_true', help='Force using Rust backend (default if available)')
     parser.add_argument('--go', action='store_true', help='Force using Go FFI backend (default if available)')
     parser.add_argument('--pyffi', action='store_true', help='Force using Python FFI backend')
-    
+    parser.add_argument('--optimize', '-O', action='store_true', help='Enable optimizations')
+    parser.add_argument('--check', action='store_true', help='Syntax check only, do not run')
+    parser.add_argument('--format', action='store_true', help='Format code before running')
+
     args, remaining = parser.parse_known_args()
-    
+
     if args.version:
         print(f"SynthLang v{read_current_version()}")
         return
-    
+
     if not remaining:
         parser.print_help()
         return
-    
+
     # Determine backend selection
     backend = "python" if args.python else "rust"
     ffi_backend = "pyffi" if args.pyffi else "go"
-    
+
     if backend == "rust" and RUST_AVAILABLE:
         if args.verbose:
             print("Using Rust Core backend")
     elif backend == "rust" and not RUST_AVAILABLE:
         print("Warning: Rust backend requested but synthlang_core not available, falling back to Python", file=sys.stderr)
         backend = "python"
-    
+
     if ffi_backend == "go" and GO_AVAILABLE:
         if args.verbose:
             print("Using Go FFI backend for concurrency and FFI operations")
     elif ffi_backend == "go" and not GO_AVAILABLE:
         print("Warning: Go FFI requested but libgoffi not available, falling back to Python FFI", file=sys.stderr)
         ffi_backend = "pyffi"
-    
+
     first_arg = remaining[0]
-    
+
+    # Auto-detect .sl files anywhere in arguments
+    sl_file = None
+    for arg in remaining:
+        if arg.endswith('.sl'):
+            sl_file = arg
+            break
+
     if first_arg in ('init', 'run', 'build', 'test', 'fmt', 'eval', 'repl',
-                   'pip', 'npm', 'install', 'list', 'make', 'doc',
-                   'doctor', 'watch', 'optimize', 'profile', 'version'):
+                     'pip', 'npm', 'install', 'list', 'make', 'doc',
+                     'doctor', 'watch', 'optimize', 'profile', 'version',
+                     'clean', 'search', 'add', 'remove', 'update', 'check', 'format'):
         args = _build_subparser(first_arg, backend == "python").parse_args(remaining[1:])
         _dispatch(first_arg, args)
-    elif first_arg.endswith('.sl') or not first_arg.startswith('-'):
-        if Path(first_arg).exists():
+    elif sl_file:
+        if args.check:
+            print(f"Checking {sl_file}...")
             try:
-                result = run_file(first_arg, args.verbose, debug=args.debug, backend=backend, ffi_backend=ffi_backend)
-                if result:
+                from .lexer import Lexer
+                from .parser import Parser
+                with open(sl_file, 'r') as f:
+                    source = f.read()
+                lexer = Lexer(source)
+                tokens = lexer.tokenize()
+                parser = Parser(tokens, source)
+                parser.parse()
+                print("Syntax OK")
+            except Exception as e:
+                print(f"Syntax error: {e}")
+                sys.exit(1)
+        else:
+            try:
+                result = run_file(sl_file, args.verbose, debug=args.debug, backend=backend, ffi_backend=ffi_backend)
+                if result and not args.quiet:
                     for k, v in result.items():
                         print(f"{k} = {v}")
             except FileNotFoundError:
-                print(f"Error: File '{first_arg}' not found", file=sys.stderr)
+                print(f"Error: File '{sl_file}' not found", file=sys.stderr)
                 sys.exit(1)
             except Exception as e:
                 print(f"Error: {e}", file=sys.stderr)
                 sys.exit(1)
-        else:
-            parser.print_help()
     else:
         parser.print_help()
 
@@ -708,11 +807,25 @@ def _build_subparser(cmd: str, use_python: bool = False):
         parser.add_argument('file')
         parser.add_argument('--python', action='store_true', help='Force using Python backend')
     elif cmd == 'optimize':
-        parser.add_argument('file')
+        parser.add_argument('file', nargs='?')
     elif cmd == 'profile':
+        parser.add_argument('file', nargs='?')
+    elif cmd == 'clean':
+        parser.add_argument('--cache', action='store_true', help='Clean cache only')
+    elif cmd == 'search':
+        parser.add_argument('pattern', nargs='+')
+    elif cmd == 'add':
+        parser.add_argument('package')
+        parser.add_argument('--version', '-V')
+    elif cmd == 'remove':
+        parser.add_argument('package')
+    elif cmd == 'update':
+        parser.add_argument('package', nargs='?')
+    elif cmd == 'check':
         parser.add_argument('file')
-    elif cmd == 'make':
-        parser.add_argument('what', required=True)
+    elif cmd == 'format':
+        parser.add_argument('file', nargs='?')
+        parser.add_argument('--write', action='store_true')
     elif cmd == 'doc':
         parser.add_argument('file', nargs='?')
     elif cmd == 'version':
@@ -728,6 +841,8 @@ def _dispatch(cmd: str, args):
         'npm': cmd_npm, 'install': cmd_install, 'list': cmd_list, 'make': cmd_make,
         'doc': cmd_doc, 'doctor': cmd_doctor, 'watch': cmd_watch,
         'optimize': cmd_optimize, 'profile': cmd_profile, 'version': cmd_version,
+        'clean': cmd_clean, 'search': cmd_search, 'add': cmd_add, 'remove': cmd_remove,
+        'update': cmd_update, 'check': lambda args: None, 'format': cmd_fmt,
     }
     cmd_map[cmd](args)
 

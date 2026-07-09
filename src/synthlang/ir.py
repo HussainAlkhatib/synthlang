@@ -36,6 +36,11 @@ class IRType(Enum):
     DEFER = auto()
     MATCH = auto()
     TRY = auto()
+    EXEC_CODE_BLOCK = auto()
+    MAKE_CHANNEL = auto()
+    CHAN_SEND = auto()
+    CHAN_RECV = auto()
+    BUILD_KWARGS = auto()
 
 
 @dataclass
@@ -192,3 +197,18 @@ def match_op(cases: list) -> IRInstruction:
 
 def try_op() -> IRInstruction:
     return IRInstruction(IRType.TRY)
+
+def exec_code_block(lang: str, code: str) -> IRInstruction:
+    return IRInstruction(IRType.EXEC_CODE_BLOCK, operand=lang, arg1=code)
+
+def make_channel(size: int = 0) -> IRInstruction:
+    return IRInstruction(IRType.MAKE_CHANNEL, operand=size)
+
+def chan_send(chan_name: str) -> IRInstruction:
+    return IRInstruction(IRType.CHAN_SEND, operand=chan_name)
+
+def chan_recv(chan_name: str) -> IRInstruction:
+    return IRInstruction(IRType.CHAN_RECV, operand=chan_name)
+
+def build_kwargs(keys: list) -> IRInstruction:
+    return IRInstruction(IRType.BUILD_KWARGS, operand=keys)

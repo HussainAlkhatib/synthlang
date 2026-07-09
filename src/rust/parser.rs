@@ -3,7 +3,7 @@ use crate::token::{Token, TokenType};
 #[derive(Debug, Clone)]
 pub enum NodeType {
     MODULE, FUNCTION, VARIABLE, ASSIGNMENT, IF, ELIF, ELSE, FOR, WHILE,
-    RETURN, EXPRESSION, FFI_CALL, LOAD_VAR, MATCH, CASE, DEFER, TRY,
+    RETURN, EXPRESSION, FFI_CALL, LOAD_VAR, MATCH, CASE, DEFER, TRY, INLINE_CODE,
 }
 
 #[derive(Debug, Clone)]

@@ -8,7 +8,8 @@ from .ir import (
     jump, jump_if_false, jump_if_true, loop_begin, loop_end,
     alloc, free, increment_rc, decrement_rc,
     spawn_thread, wait, yield_op, await_op, binary_op, unary_op,
-    ffi_import, ffi_call, ffi_get_attr, label, defer_op, match_op, try_op
+    ffi_import, ffi_call, ffi_get_attr, label, defer_op, match_op, try_op, exec_code_block,
+    make_channel, chan_send, chan_recv, build_kwargs
 )
 
 
@@ -77,6 +78,8 @@ class Compiler:
             self._compile_defer(node)
         elif node.type == NodeType.TRY:
             self._compile_try(node)
+        elif node.type == NodeType.INLINE_CODE:
+            self._compile_inline_code(node)
         elif node.type == NodeType.IMPORT:
             self._compile_import(node)
         elif node.type == NodeType.FFI_IMPORT_SELECTIVE:
@@ -105,6 +108,9 @@ class Compiler:
         name = func_info['name']
         params = [p['name'] for p in func_info.get('params', [])]
         self.ir_module.func_params[name] = params
+        if not hasattr(self.ir_module, 'async_funcs'):
+            self.ir_module.async_funcs = {}
+        self.ir_module.async_funcs[name] = func_info.get('is_async', False)
         self.current_function = name
         self.function_instructions[name] = []
 
@@ -179,6 +185,17 @@ class Compiler:
                 if key is not None:
                     entries[key] = value
             instructions.append(load_const(entries))
+        elif node.type == NodeType.AWAIT:
+            # Compile child expression
+            instructions.extend(self._compile_expression(node.children[0]))
+            # Emit AWAIT instruction
+            instructions.append(await_op(node.children[0].value if node.children[0].type == NodeType.LOAD_VAR else ''))
+        elif node.type == NodeType.KWARG:
+            keys = []
+            for key, val_node in node.value.items():
+                keys.append(key)
+                instructions.extend(self._compile_expression(val_node))
+            instructions.append(build_kwargs(keys))
         return instructions
 
     def _compile_assignment(self, node: ASTNode) -> Optional[IRInstruction]:
@@ -349,13 +366,13 @@ class Compiler:
             self._add_instruction(ffi_import(language, full_name, func_name))
 
     def _compile_match(self, node: ASTNode):
-        """Compile a match statement into IR."""
+        """Compile a match statement into IR with full pattern matching support."""
+        import re
         if node.children:
             value_expr = node.children[0]
             for instr in self._compile_expression(value_expr):
                 self._add_instruction(instr)
         
-        # Collect all patterns and bodies from remaining children
         remaining = node.children[1:] if len(node.children) > 1 else []
         
         patterns = []
@@ -366,22 +383,48 @@ class Compiler:
             elif child.type == NodeType.EXPRESSION:
                 patterns.append(child)
         
-        # Generate match logic with labels
         final_label = self._new_label('match_end')
         
-        for pattern, body in zip(patterns[:len(bodies)], bodies):
+        for i, (pattern, body) in enumerate(zip(patterns[:len(bodies)], bodies)):
             if pattern.type == NodeType.EXPRESSION:
-                # Compile pattern comparison
-                for instr in self._compile_expression(pattern):
-                    self._add_instruction(instr)
-                # Stack has: value, pattern_value - compare
-                self._add_instruction(binary_op('=='))
-                case_end = self._new_label('case_end')
-                self._add_instruction(jump_if_false(case_end))
-                for child in body.children:
-                    self._compile_node(child)
-                self._add_instruction(jump(final_label))
-                self._add_instruction(label(case_end))
+                pattern_val = pattern.value
+                
+                # Handle range patterns like "4..10"
+                if isinstance(pattern_val, str) and '..' in pattern_val and pattern_val.replace('.', '').replace('-', '').isdigit():
+                    parts = pattern_val.split('..')
+                    if len(parts) == 2:
+                        low_match = self._new_label(f'range_low_{i}')
+                        high_match = self._new_label(f'range_high_{i}')
+                        case_end = self._new_label(f'case_end_{i}')
+                        
+                        # Duplicate value for comparison
+                        self._add_instruction(IRInstruction(IRType.LOAD_VAR, operand='_'))
+                        
+                        # Check if value >= low
+                        self._add_instruction(load_const(int(parts[0])))
+                        self._add_instruction(binary_op('>='))
+                        self._add_instruction(jump_if_false(case_end))
+                        
+                        # Check if value <= high
+                        self._add_instruction(load_const(int(parts[1])))
+                        self._add_instruction(binary_op('<='))
+                        self._add_instruction(jump_if_false(case_end))
+                        
+                        for child in body.children:
+                            self._compile_node(child)
+                        self._add_instruction(jump(final_label))
+                        self._add_instruction(label(case_end))
+                else:
+                    # Compile pattern comparison
+                    for instr in self._compile_expression(pattern):
+                        self._add_instruction(instr)
+                    self._add_instruction(binary_op('=='))
+                    case_end = self._new_label(f'case_end_{i}')
+                    self._add_instruction(jump_if_false(case_end))
+                    for child in body.children:
+                        self._compile_node(child)
+                    self._add_instruction(jump(final_label))
+                    self._add_instruction(label(case_end))
         
         self._add_instruction(label(final_label))
 
@@ -404,6 +447,12 @@ class Compiler:
         """Compile a try/handle statement."""
         error_var = node.value.get('error_var', '_error') if node.value else '_error'
         
+        handle_label = self._new_label('handle')
+        end_label = self._new_label('try_end')
+        
+        # Emit TRY instruction to set up exception handler
+        self._add_instruction(IRInstruction(IRType.TRY, operand=handle_label))
+        
         if len(node.children) > 0:
             try_expr = node.children[0]
             for instr in self._compile_expression(try_expr):
@@ -414,11 +463,27 @@ class Compiler:
             for child in try_body.children:
                 self._compile_node(child)
         
+        # Pop exception handler on success
+        self._add_instruction(IRInstruction(IRType.TRY, operand=None))
+        self._add_instruction(jump(end_label))
+        
+        # Exception handler entry
+        self._add_instruction(label(handle_label))
+        self._add_instruction(store_var(error_var))
+        
         if len(node.children) > 2:
             handle_body = node.children[2]
-            self._add_instruction(load_var(error_var))
             for child in handle_body.children:
                 self._compile_node(child)
+                
+        self._add_instruction(label(end_label))
+
+    def _compile_inline_code(self, node: ASTNode):
+        """Compile inline code block to IR."""
+        if node.value:
+            lang = node.value.get('language', 'python')
+            code = node.value.get('code', '')
+            self._add_instruction(exec_code_block(lang, code))
 
 
 if __name__ == '__main__':

@@ -1,34 +1,30 @@
-@python module "discord" as _discord
-@python module "os" as _os
-
-let client = null
+# Discord bot module (Pure SynthLang)
+@python module "discord" as discord
 
 fn run(token: str, handler: fn):
-    global client
+    let intents = discord.Intents.all()
+    let client = discord.Client(intents=intents)
     
-    if client == null:
-        client = _discord.Client()
+    async fn on_ready():
+        let user = client.user
+        print("Logged in as " + str(user))
     
-    fn on_message(message):
-        if message.author == client.user:
-            return
+    async fn on_message(message):
+        let author = message.author
+        let bot_user = client.user
+        if author == bot_user:
+            return None
+            
         let content = message.content
-        let user_id = str(message.author.id)
-        let response = handler(content, user_id)
-        if response != "":
-            _discord.send_message(message.channel, response)
-    
+        let response = handler(content, str(author))
+        if response:
+            let channel = message.channel
+            await channel.send(response)
+            
+    client.event(on_ready)
     client.event(on_message)
     client.run(token)
-    return true
 
 fn get_token():
-    return _os.getenv("DISCORD_TOKEN")
-
-fn on_ready():
-    if client:
-        return "Bot is ready"
-    return "No client initialized"
-
-fn send_message(channel, content: str):
-    return channel.send(content)
+    @python module "os" as os
+    return os.environ.get("DISCORD_TOKEN", "")

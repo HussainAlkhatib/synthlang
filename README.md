@@ -114,7 +114,11 @@ pip install synthlang
 
 ## Features
 
-- **Polyglot FFI**: Python, JavaScript, Rust, C, Go, Java libraries
+- **Polyglot FFI**: Python, JavaScript, TypeScript, Rust, C, C++, Go, Java, C#, Kotlin, Swift, PHP, Ruby, R, Lua, Julia, Haskell, Elixir, Dart, Zig libraries
+- **Inline Code Tags**: Write code from 20 languages directly inline with `<py>`, `<r>`, `<rust>`, etc.
+- **Pattern Matching**: `match`/`case` statements for clean conditional logic
+- **Deferred Execution**: `defer` statement for automatic cleanup
+- **Error Handling**: `try`/`handle` for robust error management
 - **Memory Management**: `@gc` (default), `@rc`, `@manual`
 - **Concurrency**: `go` and `await` for lightweight threading
 - **Clean Syntax**: Minimal boilerplate, maximum expressiveness

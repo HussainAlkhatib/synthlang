@@ -1,7 +1,29 @@
-@python module "os" as os
+# Environment variables and process module
+@python module "os" as os_native
+@python module "sys" as sys_native
 
-fn env_get(var_name: str):
-    return os.getenv(var_name)
+fn get(name: str):
+    os_native.getenv(name)
 
-fn env_set(var_name: str, value: str):
-    os.environ[var_name] = value
+fn set(name: str, value: str):
+    os_native.environ[name] = value
+
+fn unset(name: str):
+    del os_native.environ[name]
+
+fn args() -> list:
+    sys_native.argv[1:]
+
+fn exec(cmd: str):
+    import subprocess
+    subprocess.run(cmd, shell=True, check=True)
+
+fn exit(code: int):
+    import sys
+    sys.exit(code)
+
+fn getenv(name: str, default: str = ""):
+    os_native.getenv(name, default)
+
+fn environ() -> dict:
+    dict(os_native.environ)

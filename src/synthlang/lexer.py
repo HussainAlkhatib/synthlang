@@ -1,5 +1,6 @@
 """SynthLang Lexer - Tokenizes SynthLang source code."""
 import re
+import json
 from enum import Enum, auto
 from dataclasses import dataclass
 from typing import List, Optional
@@ -25,6 +26,9 @@ class TokenType(Enum):
     MATCH = auto()
     CASE = auto()
     AS = auto()
+    ASM = auto()
+    ASYNC = auto()
+    INLINE_CODE = auto()
 
     ANNOT_MANUAL = auto()
     ANNOT_RC = auto()
@@ -83,6 +87,9 @@ class TokenType(Enum):
     RBRACE = auto()
     COMMA = auto()
     DOT = auto()
+    CHANNEL = auto()
+    SEND_CHAN = auto()
+    RECV_CHAN = auto()
 
     INTEGER = auto()
     FLOAT = auto()
@@ -128,6 +135,7 @@ class Lexer:
         'return': TokenType.RETURN, 'go': TokenType.GO, 'await': TokenType.AWAIT,
         'try': TokenType.TRY, 'handle': TokenType.HANDLE, 'panic': TokenType.PANIC,
         'defer': TokenType.DEFER, 'match': TokenType.MATCH, 'case': TokenType.CASE, 'module': TokenType.ANNOT_MODULE,
+        'channel': TokenType.CHANNEL, 'async': TokenType.ASYNC,
         'as': TokenType.AS,
     }
 
@@ -170,13 +178,33 @@ class Lexer:
         return self.tokens
 
     def _get_line_context(self) -> str:
-        """Get the current line for error context."""
         lines = self.source.split('\n')
         if self.line <= len(lines):
             return lines[self.line - 1]
         return ""
 
+    INLINE_LANGUAGES = {'py', 'r', 'rust', 'go', 'cpp', 'c', 'js', 'ts', 'kotlin', 'swift', 
+                         'php', 'ruby', 'java', 'csharp', 'lua', 'julia', 'haskell', 
+                         'elixir', 'dart', 'zig', 'asm'}
+
+    def _handle_inline_code(self, lang: str) -> str:
+        start_pos = self.pos
+        start_line = self.line
+        tag_end = f'</{lang}>'
+        tag_pos = self.source.find(tag_end, start_pos)
+        if tag_pos == -1:
+            raise LexerError(
+                f"Unterminated inline code block <{lang}>",
+                start_line, self.column, f'</{lang}>', None
+            )
+        code = self.source[start_pos:tag_pos]
+        self.pos = tag_pos + len(tag_end)
+        self.column += len(f'<{lang}>') + len(code) + len(f'</{lang}>')
+        return code
+
     def _tokenize_one(self):
+        if self.pos >= len(self.source):
+            return
         char = self.source[self.pos]
 
         if char == '\n':
@@ -189,13 +217,24 @@ class Lexer:
             self._skip_whitespace()
         elif char == '@':
             self._handle_annotation()
+        elif char == '<' and self.pos + 1 < len(self.source):
+            close_bracket = self.source.find('>', self.pos)
+            if close_bracket != -1:
+                tag_content = self.source[self.pos + 1:close_bracket].strip()
+                if tag_content in self.INLINE_LANGUAGES:
+                    lang = tag_content
+                    self.pos = close_bracket + 1
+                    code = self._handle_inline_code(lang)
+                    self.tokens.append(Token(TokenType.INLINE_CODE, json.dumps({'lang': lang, 'code': code}), self.line, self.column))
+                    return
+            self._handle_operator()
         elif char == '"':
             self._handle_string()
         elif char.isdigit() or (char == '-' and self.pos + 1 < len(self.source) and self.source[self.pos + 1].isdigit()):
             self._handle_number()
         elif char.isalpha() or char == '_' or ord(char) > 127:
             self._handle_identifier_or_keyword()
-        elif char in '+-*/%=<>!:;.(){}[],&|?':
+        elif char in '+-*/%=<>!:;.(){}[],&|?*':
             self._handle_operator()
         else:
             context = self._get_line_context()
@@ -351,16 +390,18 @@ class Lexer:
         char = self.source[self.pos]
         two_char = self.source[self.pos:self.pos + 2] if self.pos + 1 < len(self.source) else ''
 
-        if two_char in ('==', '!=', '<=', '>=', '&&', '||'):
+        if two_char in ('==', '!=', '<=', '>=', '&&', '||', '<-'):
             self.pos += 2
             if two_char == '&&':
                 tok_type = TokenType.ANDAND
             elif two_char == '||':
                 tok_type = TokenType.OROR
+            elif two_char == '<-':
+                tok_type = TokenType.RECV_CHAN
             else:
                 tok_type = self._get_op_type(two_char)
             self.tokens.append(Token(tok_type, two_char, self.line, self.column))
-        elif char in '+-*/%=<>!:;.(){}[],&|?':
+        elif char in '+-*/%=<>!:;.(){}[],&|?*':
             self.pos += 1
             tok_type = self._get_op_type(char)
             self.tokens.append(Token(tok_type, char, self.line, self.column))
@@ -379,6 +420,7 @@ class Lexer:
             '(': TokenType.LPAREN, ')': TokenType.RPAREN, '[': TokenType.LBRACKET, ']': TokenType.RBRACKET,
             '{': TokenType.LBRACE, '}': TokenType.RBRACE, ',': TokenType.COMMA, '.': TokenType.DOT,
             '==': TokenType.EQ, '!=': TokenType.NE, '<=': TokenType.LE, '>=': TokenType.GE,
+            '<-': TokenType.SEND_CHAN,
         }
         return op_map[op]
 

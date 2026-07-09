@@ -1,36 +1,38 @@
-@python module "requests" as req
-@python module "json" as json
+# HTTP client module
+@python module "requests" as requests
 
-fn http_get(url):
-    response = req.get(url)
-    try:
-        return json.loads(response.text)
-    except:
-        return response.text
+fn get(url: str):
+    requests.get(url).json()
 
-fn http_post(url, data):
-    response = req.post(url, json=data)
-    try:
-        return json.loads(response.text)
-    except:
-        return response.text
+fn post(url: str, data: dict):
+    requests.post(url, json=data).json()
 
-fn http_put(url, data):
-    response = req.put(url, json=data)
-    try:
-        return json.loads(response.text)
-    except:
-        return response.text
+fn put(url: str, data: dict):
+    requests.put(url, json=data).json()
 
-fn http_delete(url):
-    response = req.delete(url)
-    try:
-        return json.loads(response.text)
-    except:
-        return response.text
+fn delete(url: str):
+    requests.delete(url).json()
 
-fn get_status(response):
-    return response.status_code
+fn set_headers(headers: dict):
+    global _default_headers
+    global _default_timeout
+    _default_headers = headers
+    _default_timeout = 30.0
 
-fn get_text(response):
-    return response.text
+fn upload_file(url: str, path: str):
+    requests.post(url, files={'file': open(path, 'rb')}).json()
+
+fn download_file(url: str, path: str):
+    response = requests.get(url)
+    with open(path, 'wb') as f:
+        f.write(response.content)
+
+fn listen(port: int, handler: fn):
+    @python module "flask" as flask
+    app = flask.Flask(__name__)
+    
+    @app.route('/', methods=['GET', 'POST'])
+    def route_handler():
+        return str(handler(request=flask.request))
+    
+    app.run(port=port)

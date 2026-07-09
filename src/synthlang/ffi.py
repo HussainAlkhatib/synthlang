@@ -107,7 +107,7 @@ class FFILoader:
                 language='python', module=module_path, original_error=str(e)
             )
 
-    def call_python(self, module_name: str, func_name: str, args: list = None, slang_vm=None) -> Any:
+    def call_python(self, module_name: str, func_name: str, args: list = None, slang_vm=None, kwargs: dict = None) -> Any:
         if module_name not in self.py_modules:
             raise FFIError(
                 f"Python module '{module_name}' not loaded. Use @python module \"{module_name}\" first.",
@@ -142,14 +142,15 @@ class FFILoader:
                 processed_args.append(arg)
         
         try:
-            return obj(*processed_args)
+            kwargs = kwargs or {}
+            return obj(*processed_args, **kwargs)
         except Exception as e:
             raise FFIError(
                 f"Error calling {module_name}.{func_name}: {e}",
                 language='python', module=module_name, function=func_name, original_error=str(e)
             )
     
-    def call_python_async(self, module_name: str, func_name: str, args: list = None, slang_vm=None) -> Any:
+    def call_python_async(self, module_name: str, func_name: str, args: list = None, slang_vm=None, kwargs: dict = None) -> Any:
         """Call Python function with async support - handles coroutines automatically."""
         if module_name not in self.py_modules:
             raise FFIError(
@@ -187,7 +188,8 @@ class FFILoader:
             )
         
         try:
-            result = obj(*processed_args)
+            kwargs = kwargs or {}
+            result = obj(*processed_args, **kwargs)
             # Handle async coroutines using persistent event loop
             if inspect.iscoroutine(result):
                 if self._event_loop and not self._event_loop.is_closed():
@@ -197,7 +199,7 @@ class FFILoader:
                     return result
             elif inspect.iscoroutinefunction(obj):
                 # For coroutine functions, we need to await them
-                async_result = obj(*processed_args)
+                async_result = obj(*processed_args, **kwargs)
                 if self._event_loop and not self._event_loop.is_closed():
                     future = asyncio.run_coroutine_threadsafe(async_result, self._event_loop)
                     return future.result(timeout=30)
@@ -912,14 +914,45 @@ class SynthLangFunction:
         if vm is None:
             raise RuntimeError("Cannot call SynthLang function without VM context")
         if self.name in vm.functions:
-            return vm._run_function(self.name, args)
+            is_async = False
+            if hasattr(vm.ir_module, 'async_funcs'):
+                is_async = vm.ir_module.async_funcs.get(self.name, False)
+            if is_async:
+                # If we're calling it from a sync context, we need to run it in a loop
+                try:
+                    loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                if loop.is_running():
+                    # Nested loop scenario
+                    try:
+                        import nest_asyncio
+                        nest_asyncio.apply()
+                    except ImportError:
+                        pass
+                    return loop.run_until_complete(vm._run_function(self.name, args))
+                else:
+                    return asyncio.run(vm._run_function(self.name, args))
+            else:
+                return vm._run_sync_function(self.name, args)
         raise RuntimeError(f"SynthLang function '{self.name}' not found in VM")
 
     def create_python_callback(self, vm: Any) -> Callable:
         """Create a Python callable that invokes this SynthLang function."""
-        def callback(*args):
-            return self.call_with_vm(vm, list(args))
-        return callback
+        is_async = False
+        if hasattr(vm.ir_module, 'async_funcs'):
+            is_async = vm.ir_module.async_funcs.get(self.name, False)
+        
+        if is_async:
+            async def async_callback(*args):
+                # Returns a coroutine that python async frameworks (like discord.py) can await
+                return await vm._run_function(self.name, list(args))
+            return async_callback
+        else:
+            def callback(*args):
+                return self.call_with_vm(vm, list(args))
+            return callback
 
 
 def rust_module(path, as_name=None):

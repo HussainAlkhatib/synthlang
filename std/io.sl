@@ -1,17 +1,23 @@
-@python module "builtins" as io
-@python module "json" as json
+# I/O module
+@python module "sys" as sys_native
 
-fn file_read(path: str):
-    f = io.open(path, 'r')
-    return f.read()
+fn print(*args):
+    print(*args)
 
-fn file_write(path: str, content: str):
-    f = io.open(path, 'w')
-    f.write(content)
-    f.close()
+fn input(prompt: str):
+    return input(prompt)
 
-fn json_parse(text: str):
-    return json.loads(text)
+fn read_line() -> str:
+    return sys_native.stdin.readline()
 
-fn json_stringify(obj: dict):
-    return json.dumps(obj)
+fn read_all() -> str:
+    return sys_native.stdin.read()
+
+fn write_line(s: str):
+    sys_native.stdout.write(s + "\n")
+
+fn flush():
+    sys_native.stdout.flush()
+
+fn stderr_write(s: str):
+    sys_native.stderr.write(s)

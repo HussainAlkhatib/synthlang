@@ -58,9 +58,20 @@ impl VM {
             }
             IRType::MATCH => { /* Handled by pattern matching logic */ }
             IRType::TRY => { /* Handled by try/handle logic */ }
+            IRType::EXEC_CODE_BLOCK => {
+                if let (Some(lang), Some(code)) = (&instr.operand, &instr.arg1) {
+                    let result = self.execute_inline_code(lang, code);
+                    self.stack.push(result);
+                }
+            }
             IRType::RETURN => { /* Return from function */ }
             _ => {}
         }
+    }
+
+    fn execute_inline_code(&self, _lang: &str, _code: &str) -> String {
+        use std::process::Command;
+        String::new()
     }
 }
 

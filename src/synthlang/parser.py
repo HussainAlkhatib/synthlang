@@ -34,6 +34,12 @@ class NodeType(Enum):
     CASE = auto()
     DEFER = auto()
     TRY = auto()
+    INLINE_CODE = auto()
+    CHANNEL = auto()
+    CHAN_SEND = auto()
+    CHAN_RECV = auto()
+    AWAIT = auto()
+    KWARG = auto()
 
 
 @dataclass
@@ -149,10 +155,22 @@ class Parser:
             return self._parse_variable_decl(annotations)
         elif self.current_token.type == TokenType.FN:
             return self._parse_function_decl(annotations)
+        elif self.current_token.type == TokenType.ASYNC:
+            self._advance() # consume async
+            if self.current_token and self.current_token.type == TokenType.FN:
+                return self._parse_function_decl(annotations, is_async=True)
+            else:
+                raise ParseError("Expected 'fn' after 'async'", self.current_token.line if self.current_token else 0, self.current_token.column if self.current_token else 0, "fn", None, "", self.source)
         elif self.current_token.type == TokenType.IF:
             return self._parse_if_stmt()
         elif self.current_token.type == TokenType.MATCH:
             return self._parse_match_stmt()
+        elif self.current_token.type == TokenType.DEFER:
+            return self._parse_defer_stmt()
+        elif self.current_token.type == TokenType.TRY:
+            return self._parse_try_stmt()
+        elif self.current_token.type == TokenType.PANIC:
+            return self._parse_panic_stmt()
         elif self.current_token.type == TokenType.FOR:
             return self._parse_for_stmt()
         elif self.current_token.type == TokenType.WHILE:
@@ -161,6 +179,8 @@ class Parser:
             return self._parse_return_stmt()
         elif self.current_token.type == TokenType.ANNOT_MODULE:
             return self._parse_module_import(annotations)
+        elif self.current_token.type == TokenType.INLINE_CODE:
+            return self._parse_inline_code()
         elif self.current_token.type == TokenType.IDENTIFIER:
             return self._parse_assignment_or_expression()
         else:
@@ -226,7 +246,7 @@ class Parser:
         node.annotations = annotations
         return node
 
-    def _parse_function_decl(self, annotations: List[Annotation]) -> ASTNode:
+    def _parse_function_decl(self, annotations: List[Annotation], is_async: bool = False) -> ASTNode:
         self._advance()  # consume fn
         name_tok = self.current_token
         self._advance()
@@ -282,7 +302,7 @@ class Parser:
         if self.current_token and self.current_token.type == TokenType.DEDENT:
             self._advance()
 
-        node = ASTNode(NodeType.FUNCTION, value={'name': name_tok.value, 'params': params, 'return_type': return_type})
+        node = ASTNode(NodeType.FUNCTION, value={'name': name_tok.value, 'params': params, 'return_type': return_type, 'is_async': is_async})
         node.children = body
         node.annotations = annotations
         return node
@@ -354,13 +374,27 @@ class Parser:
             pass
 
         then_branch = []
-        while self.current_token and self.current_token.type not in (TokenType.ELSE, TokenType.ELIF, TokenType.EOF):
-            if self.current_token.type in (TokenType.NEWLINE, TokenType.INDENT, TokenType.DEDENT):
+        while self.current_token and self.current_token.type not in (TokenType.ELSE, TokenType.ELIF, TokenType.DEDENT, TokenType.EOF):
+            if self.current_token.type in (TokenType.NEWLINE, TokenType.INDENT):
                 self._advance()
                 continue
             stmt = self._parse_statement()
             if stmt:
                 then_branch.append(stmt)
+
+        # After then_branch ends on DEDENT, consume DEDENTs to find else/elif at same indent level
+        # We peek: if there are DEDENTs followed by ELSE/ELIF, those DEDENTs are from nested blocks
+        # and we should consume them. But if DEDENTs lead to something else, they close this if.
+        saved_pos = self.pos
+        saved_tok = self.current_token
+        dedents_consumed = 0
+        while self.current_token and self.current_token.type in (TokenType.DEDENT, TokenType.NEWLINE):
+            self._advance()
+            dedents_consumed += 1
+        # If next token is NOT else/elif, restore position so outer scope can handle DEDENTs
+        if self.current_token and self.current_token.type not in (TokenType.ELSE, TokenType.ELIF):
+            self.pos = saved_pos
+            self.current_token = saved_tok
 
         elif_branches = []
         else_branch = []
@@ -381,13 +415,21 @@ class Parser:
                 if not self._expect(TokenType.NEWLINE):
                     pass
                 elif_body = []
-                while self.current_token and self.current_token.type not in (TokenType.ELSE, TokenType.ELIF, TokenType.EOF):
-                    if self.current_token.type in (TokenType.NEWLINE, TokenType.INDENT, TokenType.DEDENT):
+                while self.current_token and self.current_token.type not in (TokenType.ELSE, TokenType.ELIF, TokenType.DEDENT, TokenType.EOF):
+                    if self.current_token.type in (TokenType.NEWLINE, TokenType.INDENT):
                         self._advance()
                         continue
                     stmt = self._parse_statement()
                     if stmt:
                         elif_body.append(stmt)
+                # After elif_body ends on DEDENT, peek to see if there is else/elif at same level
+                saved_pos2 = self.pos
+                saved_tok2 = self.current_token
+                while self.current_token and self.current_token.type in (TokenType.DEDENT, TokenType.NEWLINE):
+                    self._advance()
+                if self.current_token and self.current_token.type not in (TokenType.ELSE, TokenType.ELIF):
+                    self.pos = saved_pos2
+                    self.current_token = saved_tok2
                 elif_branches.append((elif_cond, ASTNode(NodeType.BLOCK, children=elif_body)))
             else:
                 self._advance()  # consume else
@@ -556,6 +598,10 @@ class Parser:
             self._advance()
             operand = self._parse_unary()
             return ASTNode(NodeType.UNARY_OP, value=op, children=[operand])
+        elif self.current_token and self.current_token.type == TokenType.AWAIT:
+            self._advance()
+            operand = self._parse_unary()
+            return ASTNode(NodeType.AWAIT, value=None, children=[operand])
         return self._parse_primary()
 
     def _parse_primary(self) -> ASTNode:
@@ -636,11 +682,23 @@ class Parser:
     def _parse_call(self, func_name: str) -> ASTNode:
         self._expect(TokenType.LPAREN)
         args = []
+        kwargs = {}
         while self.current_token and self.current_token.type != TokenType.RPAREN:
             if self.current_token.type == TokenType.COMMA:
                 self._advance()
                 continue
-            args.append(self._parse_expression())
+            
+            if (self.current_token.type == TokenType.IDENTIFIER and 
+                    self.pos < len(self.tokens) and 
+                    self.tokens[self.pos].type == TokenType.ASSIGN):
+                kw_name = self.current_token.value
+                self._advance()  # consume identifier
+                self._advance()  # consume '='
+                kw_val = self._parse_expression()
+                kwargs[kw_name] = kw_val
+            else:
+                args.append(self._parse_expression())
+                
         if not self._expect(TokenType.RPAREN):
             context = self._get_line_context(self.current_token.line if self.current_token else 0)
             raise ParseError(
@@ -650,6 +708,10 @@ class Parser:
                 self.current_token.column if self.current_token else 0,
                 ")", None, context, self.source
             )
+            
+        if kwargs:
+            args.append(ASTNode(NodeType.KWARG, value=kwargs))
+            
         return ASTNode(NodeType.CALL, value=func_name, children=args)
 
     def _parse_index(self, name: str) -> ASTNode:
@@ -707,12 +769,22 @@ class Parser:
         
         if self.current_token and self.current_token.type == TokenType.LPAREN:
             args = []
+            kwargs = {}
             self._advance()  # consume LPAREN
             while self.current_token and self.current_token.type != TokenType.RPAREN:
                 if self.current_token.type == TokenType.COMMA:
                     self._advance()
                     continue
-                args.append(self._parse_expression())
+                if (self.current_token.type == TokenType.IDENTIFIER and 
+                        self.pos < len(self.tokens) and 
+                        self.tokens[self.pos].type == TokenType.ASSIGN):
+                    kw_name = self.current_token.value
+                    self._advance()  # consume identifier
+                    self._advance()  # consume '='
+                    kw_val = self._parse_expression()
+                    kwargs[kw_name] = kw_val
+                else:
+                    args.append(self._parse_expression())
             if not self._expect(TokenType.RPAREN):
                 context = self._get_line_context(self.current_token.line if self.current_token else 0)
                 raise ParseError(
@@ -722,8 +794,13 @@ class Parser:
                     self.current_token.column if self.current_token else 0,
                     ")", None, context, self.source
                 )
-            # Return the full method path - FFI loader will handle it
-            return ASTNode(NodeType.FFI_CALL, value={"module": module_name, "method": method_path[len(module_name)+1:], "args": args})
+            if kwargs:
+                args.append(ASTNode(NodeType.KWARG, value=kwargs))
+            # split method_path into module and method
+            parts = method_path.split('.')
+            module = parts[0]
+            method = ".".join(parts[1:])
+            return ASTNode(NodeType.FFI_CALL, value={"module": module, "method": method, "args": args})
         
         return ASTNode(NodeType.FFI_GET_ATTR, value={"module": module_name, "attr": method_path[len(module_name)+1:]})
 
@@ -800,13 +877,34 @@ class Parser:
         return ASTNode(NodeType.DICT, children=entries)
 
     def _parse_assignment_or_expression(self) -> Optional[ASTNode]:
+        """Parse a simple assignment, subscript assignment, or expression statement.
+
+        Handles:
+            name = expr
+            name[key] = expr
+            name[key][key2] = expr
+            name.attr = expr   (attribute set via FFI)
+            expr (standalone call / expression)
+        """
+        # Simple assignment: name = expr
         if self._peek() == TokenType.ASSIGN:
             name = self.current_token.value
             self._advance()  # consume identifier
             self._advance()  # consume =
             expr = self._parse_expression()
             return ASTNode(NodeType.ASSIGNMENT, value=name, children=[expr])
-        return self._parse_expression()
+
+        # Parse the left-hand side as an expression first
+        lhs = self._parse_expression()
+
+        # Check for assignment after subscript/attr: lhs = rhs
+        if self.current_token and self.current_token.type == TokenType.ASSIGN:
+            self._advance()  # consume =
+            rhs = self._parse_expression()
+            return ASTNode(NodeType.ASSIGN_SUBSCRIPT, value=None, children=[lhs, rhs])
+
+        # Not an assignment — return as an expression statement
+        return lhs
 
     def _parse_match_stmt(self) -> Optional[ASTNode]:
         """Parse a match statement with pattern matching.
@@ -874,6 +972,9 @@ class Parser:
                     stmt = self._parse_statement()
                     if stmt:
                         body.append(stmt)
+                
+                if self.current_token and self.current_token.type == TokenType.DEDENT:
+                    self._advance()
                 
                 cases.append((patterns, ASTNode(NodeType.BLOCK, children=body)))
         
@@ -967,6 +1068,32 @@ class Parser:
         node = ASTNode(NodeType.TRY, value={'error_var': handle_error_name})
         node.children = [try_expr, ASTNode(NodeType.BLOCK, children=try_body), ASTNode(NodeType.BLOCK, children=handle_body)]
         return node
+
+    def _parse_panic_stmt(self) -> ASTNode:
+        self._advance()  # consume panic
+        has_paren = self._expect(TokenType.LPAREN)
+        expr = self._parse_expression()
+        if has_paren:
+            if not self._expect(TokenType.RPAREN):
+                context = self._get_line_context(self.current_token.line if self.current_token else 0)
+                raise ParseError("Expected ')' after panic expression", self.current_token.line if self.current_token else 0, self.current_token.column if self.current_token else 0, ")", None, context, self.source)
+        return ASTNode(NodeType.CALL, value="panic", children=[expr])
+
+    def _parse_inline_code(self) -> Optional[ASTNode]:
+        """Parse inline code block from another language.
+        
+        Syntax:
+            <py>
+            print("Hello from Python!")
+            </py>
+        """
+        import json
+        token_value = self.current_token.value
+        code_info = json.loads(token_value)
+        lang = code_info['lang']
+        code = code_info['code']
+        self._advance()  # consume INLINE_CODE token
+        return ASTNode(NodeType.INLINE_CODE, value={'language': lang, 'code': code})
 
 
 if __name__ == '__main__':
